@@ -1,8 +1,8 @@
-# Tentacool — Inicio de Jornada
+# Tentacool
 
-Orquestador **multiagente** que automatiza el inicio de la jornada laboral
-de un desarrollador: recoge contexto del día, genera un briefing inteligente,
-abre las herramientas de trabajo y deja la memoria escrita para el día siguiente.
+**Copiloto agéntico de tu jornada**: orquesta agentes (LangGraph + DeepSeek) que
+recogen contexto, generan briefings, abren tus herramientas, mantienen la memoria
+en Notion y vigilan los cambios de tus repos durante todo el día.
 
 > Tecnologías: **LangGraph** (orquestación de agentes) · **DeepSeek** (LLM) ·
 > **Notion API** (memoria persistente) · **MCP** (integración con Claude Code) ·
@@ -39,6 +39,8 @@ A la hora que programes (con cron), el orquestador:
 5. **Abre VS Code** en tu proyecto del día.
 6. Al final de la jornada: `fin` **apaga los contenedores Docker** (sin apagar
    la PC, que queda disponible para acceso remoto).
+7. Durante el día, un **watcher** (cron) detecta **commits nuevos** en tus repos
+   y los **registra en Notion** (resumen con IA: qué, quién y cuándo).
 
 ---
 
@@ -132,6 +134,7 @@ de repos/proyectos.
 | `src/graph.py` | Construcción de los grafos LangGraph (inicio y fin) |
 | `src/nodes.py` | Los agentes/nodos (GitHub, Notion, navegador, resumen, Docker, VS Code) |
 | `src/mcp_server.py` | Servidor MCP para Claude Code |
+| `src/watcher.py` | Watcher: detecta commits nuevos y los registra en Notion |
 | `src/config.py` | Configuración (tokens, rutas, navegador, proyectos) |
 | `tentacool-io/` | CLI en **Go**: fetch de commits de GitHub EN PARALELO + JSON limpio para la IA |
 | `.env` | Credenciales (NUNCA subir a git) |
@@ -167,9 +170,17 @@ crontab -e
 0 8 * * 1-5 DISPLAY=:0 /ruta/a/tentacool/.venv/bin/python /ruta/a/tentacool/main.py inicio >> /ruta/a/tentacool/cron-inicio.log 2>&1
 ```
 
+**Vigilancia de cambios (watcher)** — ejemplo: cada 15 minutos en horario laboral:
+
+```bash
+crontab -e
+# añade la línea (ajusta ruta y horario a tu preferencia):
+*/15 7-19 * * 1-5 DISPLAY=:0 /ruta/a/tentacool/.venv/bin/python /ruta/a/tentacool/main.py watcher >> /ruta/a/tentacool/watcher.log 2>&1
+```
+
 - `DISPLAY=:0` es necesario para que las apps gráficas (Brave, VS Code) se abran en tu escritorio.
-- Cambia `0 8 * * 1-5` por la hora/días que quieras (ej. `30 9 * * *` = 9:30 todos los días).
-- Verifica con `crontab -l`; el log queda en `cron-inicio.log`.
+- Cambia la hora/días que quieras (ej. `30 9 * * *` = 9:30 todos los días).
+- Verifica con `crontab -l`; el log del watcher queda en `watcher.log`.
 
 ## ⚙️ Configuración
 
@@ -183,6 +194,8 @@ código. Plantilla: `.env.example` → cópiala a `.env`.
 | `GITHUB_TOKEN` / `GITHUB_USER` | Descubrir repos + commits desde ayer | para GitHub |
 | `NOTION_TOKEN` | Escribir/leer la página "Memoria" | para Notion |
 | `NOTION_DATABASE_ID` / `NOTION_PAGE_URL` | Página de Notion | para Notion |
+| `NOTION_WATCHER_PAGE_ID` | Página "Watcher" (registro de cambios) | para el watcher |
+| `WATCHER_LLM_RESUMEN` | Resumen con IA (true) o crudo (false, 0 tokens) | opcional |
 | `BROWSER_CMD` / `BROWSER_PROFILE` | Navegador (default: Brave) | para abrir pestañas |
 | `WHATSAPP_URL` / `GMAIL_URL` | URLs a abrir | opcional |
 | `PROJECTS_DIR` / `PROJECTS_DOCKER` | Proyectos con docker-compose | para Docker |
