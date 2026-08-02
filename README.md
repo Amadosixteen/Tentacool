@@ -28,7 +28,7 @@ con la que vale la pena empezar es `LLM_API_KEY` (o `DEEPSEEK_API_KEY`).
 
 ## 🎯 Propósito
 
-Cada mañana a las **8:00** (programado con cron), el orquestador:
+A la hora que programes (con cron), el orquestador:
 
 1. **Descubre tus repos de GitHub** (dinámicos) y resume los **últimos commits desde ayer**.
 2. **Lee tu página "Memoria" de Notion** → el contexto del día anterior
@@ -49,7 +49,7 @@ trabajan en **paralelo** y convergen en un resumen:
 
 ```mermaid
 flowchart LR
-    A[INICIO 8:00] --> B[docker_up]
+    A[INICIO] --> B[docker_up]
     B --> C{fan-out paralelo}
     C --> D[agente GitHub]
     C --> E[agente Notion]
@@ -72,7 +72,7 @@ flowchart LR
 ### Dos grafos
 | Grafo | Cuándo | Qué hace |
 |---|---|---|
-| `inicio` | 8:00 (cron) / manual | Rutina completa de la mañana |
+| `inicio` | A la hora que programes en cron (o manual) | Rutina completa de la mañana |
 | `fin` | Al irte | Apaga los contenedores Docker |
 
 ---
@@ -117,17 +117,31 @@ Hay una **alternativa por terminal** (sin MCP) que funciona con cualquier agente
 ```bash
 source .venv/bin/activate
 
-python main.py inicio       # rutina de la mañana (o la dispara cron a las 8:00)
+python main.py inicio       # rutina de la mañana (manual o vía cron)
 python main.py fin          # apaga contenedores al irte
 python main.py leer         # ver la memoria de Notion
 python main.py nota "..."   # escribir un reporte en Notion
 python main.py pendiente "..."  # añadir un pendiente en Notion
 ```
 
-Programación automática (cron): la rutina `inicio` corre **todos los días a las 8:00**
-y deja su salida en `cron-inicio.log`.
-
 ---
+
+## ⏰ Programación (cron)
+
+La hora de disparo **no se configura en `.env`**: se define con **cron**, a la hora
+y los días que quieras. Cada usuario elige su propia programación.
+
+Ejemplo — lunes a viernes a las 8:00:
+
+```bash
+crontab -e
+# añade la línea (ajusta la ruta a tu instalación):
+0 8 * * 1-5 DISPLAY=:0 /ruta/a/tentacool/.venv/bin/python /ruta/a/tentacool/main.py inicio >> /ruta/a/tentacool/cron-inicio.log 2>&1
+```
+
+- `DISPLAY=:0` es necesario para que las apps gráficas (Brave, VS Code) se abran en tu escritorio.
+- Cambia `0 8 * * 1-5` por la hora/días que quieras (ej. `30 9 * * *` = 9:30 todos los días).
+- Verifica con `crontab -l`; el log queda en `cron-inicio.log`.
 
 ## ⚙️ Configuración
 
@@ -150,7 +164,8 @@ código. Plantilla: `.env.example` → cópiala a `.env`.
 ### Personalización del código
 - **Nodos / agentes**: `src/nodes.py` — añadir una integración nueva es añadir
   una función que devuelve un dict parcial y conectarla en `src/graph.py`.
-- **Horario**: `crontab -e` (ej. `0 8 * * 1-5 ...` = lun-vie a las 8:00).
+- **Horario de disparo**: cron (ver sección ⏰ Programación) — tú eliges la hora
+  y los días; no va en `.env`.
 
 ### 🔒 Seguridad
 - `.env` está en `.gitignore` — nunca se sube a git.
