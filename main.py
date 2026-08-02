@@ -16,7 +16,6 @@ from notion_client import Client
 from src.config import settings
 from src.graph import build_fin_graph, build_inicio_graph
 from src.nodes import read_notion_memory, write_notion_memory
-from src.watcher import run_watcher
 
 
 def _imprimir(titulo: str, contenido: str) -> None:
@@ -56,9 +55,6 @@ def main() -> int:
         print("\n✅ Contenedores apagados. La PC queda encendida (AnyDesk OK).")
         return 0
 
-    if comando == "watcher":
-        return run_watcher()
-
     if comando in ("leer", "nota", "pendiente"):
         return _notion_cli(comando, sys.argv[2:])
 
@@ -66,7 +62,6 @@ def main() -> int:
         "Comando desconocido. Usa:\n"
         "  inicio      rutina de la mañana\n"
         "  fin         apagar contenedores\n"
-        "  watcher     detectar commits nuevos y registrarlos en Notion\n"
         "  leer        mostrar la página Memoria de Notion\n"
         "  nota \"...\"  escribir un reporte/párrafo en Notion\n"
         "  pendiente \"...\"  añadir un checklist pendiente en Notion"

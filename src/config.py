@@ -93,12 +93,6 @@ class Settings:
     notion_page_url: str = field(
         default_factory=lambda: os.getenv("NOTION_PAGE_URL", "")
     )
-    # Página "Watcher" (registro de cambios detectados) — solo el ID
-    notion_watcher_page_id: str = field(
-        default_factory=lambda: _normalize_page_id(
-            os.getenv("NOTION_WATCHER_PAGE_ID", "")
-        )
-    )
 
     # ── Navegador (abrir pestañas; Brave por defecto, xdg-open fallback) ──
     brave_bin: str = field(
@@ -142,11 +136,6 @@ class Settings:
     tentacool_io_bin: str = field(
         default_factory=lambda: os.getenv("TENTACOOL_IO_BIN", "tentacool-io")
     )
-
-    # ── Watcher de cambios ──
-    # Resumen con IA (DeepSeek) de los commits nuevos; si es False, escribe
-    # los datos crudos (0 tokens).
-    watcher_llm_resumen: bool = _env_bool("WATCHER_LLM_RESUMEN", True)
 
 
 settings = Settings()

@@ -1,0 +1,8 @@
+{
+  "mcpServers": {
+    "notion-memoria": {
+      "command": "__TENTACOOL_ROOT__/.venv/bin/python",
+      "args": ["__TENTACOOL_ROOT__/src/mcp_server.py"]
+    }
+  }
+}

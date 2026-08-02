@@ -6,18 +6,26 @@ configurados en .env y src/config.py.
 
 Conexión (stdio):
     claude mcp add notion-memoria -- \
-        /home/desarrollo/tentacool/.venv/bin/python \
-        /home/desarrollo/tentacool/src/mcp_server.py
+        /ruta/a/tentacool/.venv/bin/python \
+        /ruta/a/tentacool/src/mcp_server.py
 
 O vía .mcp.json en la raíz del proyecto (ya incluido).
 """
 from __future__ import annotations
 
+import os
+import sys
+
+# Se invoca como script directo (no como módulo de paquete), así que no hay
+# import relativo posible: agregamos la raíz del proyecto al path para poder
+# importar `src.config` / `src.nodes` de forma absoluta.
+sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+
 from mcp.server.fastmcp import FastMCP
 from notion_client import Client
 
-from .config import settings
-from .nodes import read_notion_memory, write_notion_memory
+from src.config import settings
+from src.nodes import read_notion_memory, write_notion_memory
 
 mcp = FastMCP("notion-memoria")
 

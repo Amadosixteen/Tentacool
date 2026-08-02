@@ -23,6 +23,9 @@ else
     echo "==> .env ya existe, no se toca"
 fi
 
+echo "==> Generando .mcp.json con la ruta real de este clon"
+sed "s#__TENTACOOL_ROOT__#$PWD#g" .mcp.json.example > .mcp.json
+
 echo
 echo "✔ Instalación terminada. Siguientes pasos:"
 echo "  1. Edita .env con tus claves."

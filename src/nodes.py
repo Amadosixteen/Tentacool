@@ -4,8 +4,9 @@ Cada función es un nodo del grafo: recibe el estado y devuelve un dict
 parcial con las claves que actualiza. Nodos clave:
 
   · node_notion  → página libre "Memoria" (texto plano):
-        LEER   : client.blocks.children.list   (recursivo, todo el texto)
-        ESCRIBIR: client.blocks.children.append (párrafos + checklists to_do)
+        LEER    : client.blocks.children.list (recursivo, todo el texto)
+        ESCRIBIR: inserta AL INICIO de la página (lo nuevo siempre arriba),
+                  con timestamp en negrita/rojo antes de cada bloque nuevo.
 """
 from __future__ import annotations
 
@@ -304,33 +305,126 @@ def _bloque_todo(texto: str, checked: bool = False) -> dict[str, Any]:
     }
 
 
+def _bloque_fecha(dt: Optional[datetime] = None) -> dict[str, Any]:
+    """Timestamp de cuándo se agregó el bloque, en color fuerte para que
+    resalte de inmediato al abrir la página."""
+    dt = dt or datetime.now()
+    texto = dt.strftime("%d/%m/%Y %H:%M")
+    return {
+        "object": "block",
+        "type": "paragraph",
+        "paragraph": {
+            "rich_text": [
+                {
+                    "type": "text",
+                    "text": {"content": f"🕐 {texto}"},
+                    "annotations": {"bold": True, "color": "red"},
+                }
+            ]
+        },
+    }
+
+
+# Tipos de bloque que esta herramienta sabe recrear de forma segura (son
+# los únicos que ella misma genera). Cualquier otro tipo —subpáginas,
+# bases de datos, bloques con hijos anidados— NUNCA se borra ni se mueve:
+# reordenar bloques compuestos requiere borrar+recrear, y para una
+# child_page eso significa mandarla a la papelera sin forma de recrearla
+# igual (ver incidente: intentarlo trashea la subpágina).
+_TIPOS_REORDENABLES = {"paragraph", "to_do"}
+
+# Claves realmente aceptadas por la API al crear cada tipo de bloque.
+# `blocks.children.list` devuelve campos de solo-lectura extra (p.ej.
+# "icon": null en paragraph) que la API de escritura rechaza tal cual.
+_CAMPOS_ESCRIBIBLES = {
+    "paragraph": ("rich_text", "color"),
+    "to_do": ("rich_text", "checked", "color"),
+}
+
+
+def _es_reordenable(b: dict[str, Any]) -> bool:
+    return b.get("type") in _TIPOS_REORDENABLES and not b.get("has_children")
+
+
+def _recrear_bloque(b: dict[str, Any]) -> dict[str, Any]:
+    btype = b["type"]
+    obj = b[btype]
+    limpio = {k: obj[k] for k in _CAMPOS_ESCRIBIBLES[btype] if k in obj}
+    return {"object": "block", "type": btype, btype: limpio}
+
+
+def _prepend_blocks(client: Client, page_id: str, nuevos: list[dict[str, Any]]) -> int:
+    """Inserta `nuevos` bloques AL INICIO de los bloques reordenables de la
+    página (lo más nuevo arriba). Bloques especiales (subpáginas, bases de
+    datos, cualquier cosa con hijos) se dejan intactos donde están — la API
+    de Notion no permite "insertar antes del primero" sin borrar y recrear,
+    y esos tipos no se pueden recrear igual, así que no se tocan.
+    """
+    existentes: list[dict[str, Any]] = []
+    cursor: Optional[str] = None
+    while True:
+        data = client.blocks.children.list(
+            block_id=page_id, start_cursor=cursor, page_size=100
+        )
+        existentes.extend(data.get("results", []))
+        if not data.get("has_more"):
+            break
+        cursor = data.get("next_cursor")
+
+    movibles = [b for b in existentes if _es_reordenable(b)]
+    if not movibles:
+        client.blocks.children.append(block_id=page_id, children=nuevos)
+        return len(nuevos)
+
+    # Respaldo local antes de borrar nada — por si el re-append falla a
+    # mitad de camino, el contenido original no se pierde.
+    backup_dir = os.path.join(
+        os.path.dirname(os.path.dirname(os.path.abspath(__file__))), ".notion_backups"
+    )
+    os.makedirs(backup_dir, exist_ok=True)
+    backup_path = os.path.join(backup_dir, f"memoria_{datetime.now():%Y%m%d_%H%M%S}.json")
+    with open(backup_path, "w", encoding="utf-8") as f:
+        json.dump(movibles, f, ensure_ascii=False, indent=2)
+
+    recreados = [_recrear_bloque(b) for b in movibles]
+
+    for b in movibles:
+        client.blocks.delete(block_id=b["id"])
+
+    payload = nuevos + recreados
+    total = 0
+    for i in range(0, len(payload), 100):
+        lote = payload[i : i + 100]
+        client.blocks.children.append(block_id=page_id, children=lote)
+        total += len(lote)
+    return total
+
+
 def write_notion_memory(
     client: Client,
     page_id: str,
     pendientes: Optional[list[str]] = None,
     reportes: Optional[list[str]] = None,
 ) -> int:
-    """ESCRIBE (append) pendientes y reportes como bloques de texto.
+    """ESCRIBE pendientes y reportes AL INICIO de la página (lo nuevo arriba),
+    precedidos por un timestamp en color fuerte (rojo, negrita).
 
     · pendientes → checklists (to_do, sin marcar)
     · reportes   → párrafos libres
     Devuelve cuántos bloques se añadieron.
     """
-    children: list[dict[str, Any]] = []
+    nuevos: list[dict[str, Any]] = []
     if pendientes:
-        children.append(_bloque_parrafo("## Pendientes"))
-        children.extend(_bloque_todo(p) for p in pendientes if p.strip())
+        nuevos.append(_bloque_fecha())
+        nuevos.append(_bloque_parrafo("## Pendientes"))
+        nuevos.extend(_bloque_todo(p) for p in pendientes if p.strip())
     if reportes:
-        children.append(_bloque_parrafo("## Reporte IA"))
-        children.extend(_bloque_parrafo(r) for r in reportes if r.strip())
-    if not children:
+        nuevos.append(_bloque_fecha())
+        nuevos.append(_bloque_parrafo("## Reporte IA"))
+        nuevos.extend(_bloque_parrafo(r) for r in reportes if r.strip())
+    if not nuevos:
         return 0
-    # Notion limita a 100 bloques por petición
-    for i in range(0, len(children), 100):
-        client.blocks.children.append(
-            block_id=page_id, children=children[i : i + 100]
-        )
-    return len(children)
+    return _prepend_blocks(client, page_id, nuevos)
 
 
 def node_notion(state: dict) -> dict:

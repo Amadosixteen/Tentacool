@@ -1,10 +1,17 @@
 # Entorno y secretos — NUNCA subir a git
 .env
+# Generado por setup.sh con la ruta real de cada clon (ver .mcp.json.example)
+.mcp.json
 .venv/
 __pycache__/
 *.pyc
 *.log
 cron-inicio.log
+.pytest_cache/
 
 # Binario compilado de Go (el código fuente sí se sube: tentacool-io/)
 tentacool-io/tentacool-io
+
+# Respaldos locales de bloques de Notion antes de reordenar (contenido
+# personal, no debe subirse)
+.notion_backups/
