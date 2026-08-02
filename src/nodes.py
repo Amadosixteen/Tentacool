@@ -9,6 +9,7 @@ parcial con las claves que actualiza. Nodos clave:
 """
 from __future__ import annotations
 
+import json
 import os
 import shutil
 import subprocess
@@ -115,10 +116,52 @@ def node_docker_up(state: dict) -> dict:
 
 # ─────────────────────────────────────────────────────────────────────
 #  NODO: GitHub — repos dinámicos + últimos 3 commits desde ayer
+#  Usa el CLI Go (tentacool-io, en paralelo) si está disponible; si no,
+#  cae al implementación Python secuencial (fallback).
 # ─────────────────────────────────────────────────────────────────────
+def _github_via_go() -> Optional[str]:
+    """Delega en tentacool-io (Go): fetch de commits EN PARALELO y JSON
+    limpio para que la IA no procese basura. Devuelve None si no se puede."""
+    binario = shutil.which(settings.tentacool_io_bin)
+    if not binario:
+        return None
+    env = {**os.environ, "GITHUB_TOKEN": settings.github_token or ""}
+    try:
+        r = subprocess.run(
+            [binario, "fetch-commits"],
+            capture_output=True, text=True, timeout=120, env=env,
+        )
+        if r.returncode != 0:
+            return None
+        data = json.loads(r.stdout)
+    except Exception:  # noqa: BLE001
+        return None
+
+    lineas = [
+        f"Repos descubiertos: {data.get('repos_descubiertos', 0)} "
+        "(fetch en paralelo vía Go)"
+    ]
+    for repo in data.get("repos", []):
+        commits = repo.get("commits") or []
+        if not commits:
+            lineas.append(f"· {repo['repo']}: sin commits desde ayer")
+            continue
+        detalle = "; ".join(
+            f"{c.get('msg', '')[:55]} ({c.get('fecha', '')})" for c in commits
+        )
+        lineas.append(f"· {repo['repo']}: {len(commits)} commit(s) → {detalle}")
+    return "\n".join(lineas)
+
+
 def node_github(state: dict) -> dict:
     if not settings.github_token:
         return {"github_resumen": "[GitHub: falta GITHUB_TOKEN en .env]"}
+
+    via_go = _github_via_go()
+    if via_go is not None:
+        return {"github_resumen": via_go}
+
+    # ── Fallback: Python secuencial ──
     headers = {
         "Authorization": f"Bearer {settings.github_token}",
         "Accept": "application/vnd.github+json",

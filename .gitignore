@@ -5,3 +5,6 @@ __pycache__/
 *.pyc
 *.log
 cron-inicio.log
+
+# Binario compilado de Go (el código fuente sí se sube: tentacool-io/)
+tentacool-io/tentacool-io

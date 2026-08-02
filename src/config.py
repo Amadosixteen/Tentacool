@@ -130,5 +130,12 @@ class Settings:
     navegador_habilitado: bool = _env_bool("BROWSER_ENABLED", True)
     vscode_habilitado: bool = _env_bool("VSCODE_ENABLED", True)
 
+    # ── CLI de Go (I/O concurrente: GitHub en paralelo) ──
+    # Si el binario está en el PATH o se indica una ruta, los nodos lo usan
+    # para paralelizar y limpiar datos antes de la IA (fallback a Python).
+    tentacool_io_bin: str = field(
+        default_factory=lambda: os.getenv("TENTACOOL_IO_BIN", "tentacool-io")
+    )
+
 
 settings = Settings()

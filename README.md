@@ -106,6 +106,7 @@ Hay una **alternativa por terminal** (sin MCP) que funciona con cualquier agente
 | `src/nodes.py` | Los agentes/nodos (GitHub, Notion, navegador, resumen, Docker, VS Code) |
 | `src/mcp_server.py` | Servidor MCP para Claude Code |
 | `src/config.py` | Configuración (tokens, rutas, navegador, proyectos) |
+| `tentacool-io/` | CLI en **Go**: fetch de commits de GitHub EN PARALELO + JSON limpio para la IA |
 | `.env` | Credenciales (NUNCA subir a git) |
 | `.mcp.json` | Registro del servidor MCP para Claude Code |
 | `CLAUDE.md` | Reglas para que la IA use las herramientas de Notion |
@@ -160,6 +161,7 @@ código. Plantilla: `.env.example` → cópiala a `.env`.
 | `PROJECTS_DIR` / `PROJECTS_DOCKER` | Proyectos con docker-compose | para Docker |
 | `VSCODE_PROJECT` | Proyecto a abrir en VS Code | para VS Code |
 | `DOCKER_ENABLED` / `BROWSER_ENABLED` / `VSCODE_ENABLED` | Feature flags | opcional |
+| `TENTACOOL_IO_BIN` | Ruta del CLI Go (default: `tentacool-io` en PATH) | opcional |
 
 ### Personalización del código
 - **Nodos / agentes**: `src/nodes.py` — añadir una integración nueva es añadir
