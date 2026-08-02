@@ -64,6 +64,37 @@ def _abrir_en_brave(url: str) -> str:
     return f"Abierto (xdg-open): {url}"
 
 
+def _docker_via_go(accion: str) -> Optional[list]:
+    """Delega en tentacool-io (Go): opera docker compose de varios proyectos
+    EN PARALELO. Devuelve la lista de resultados o None si no se puede."""
+    binario = shutil.which(settings.tentacool_io_bin)
+    if not binario:
+        return None
+    env = {
+        **os.environ,
+        "PROJECTS_DOCKER": ",".join(settings.proyectos_docker),
+    }
+    try:
+        r = subprocess.run(
+            [binario, "docker", accion],
+            capture_output=True, text=True, timeout=300, env=env,
+        )
+        if r.returncode != 0:
+            return None
+        data = json.loads(r.stdout)
+    except Exception:  # noqa: BLE001
+        return None
+    resultados = []
+    for item in data:
+        if item.get("ok"):
+            resultados.append(f"✅ {item['proyecto']}: {accion} OK")
+        else:
+            resultados.append(
+                f"❌ {item['proyecto']}: {item.get('error', 'error')}"
+            )
+    return resultados or ["(sin proyectos con docker-compose)"]
+
+
 def _docker_proyecto(accion: str, state: dict) -> dict:
     """Ejecuta `docker compose <accion>` en cada proyecto configurado."""
     if not settings.docker_habilitado:
@@ -74,6 +105,12 @@ def _docker_proyecto(accion: str, state: dict) -> dict:
                 "Actívalo cuando tengas los entornos construidos."
             ]
         }
+
+    via_go = _docker_via_go(accion)
+    if via_go is not None:
+        return {"proyectos_docker": via_go}
+
+    # ── Fallback: Python secuencial ──
     resultados = []
     for ruta in settings.proyectos_docker:
         if not os.path.isdir(ruta):

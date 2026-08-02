@@ -97,6 +97,33 @@ Hay una **alternativa por terminal** (sin MCP) que funciona con cualquier agente
 
 ---
 
+## 🦀 Componente Go (`tentacool-io`)
+
+Tentacool usa **Go para el I/O concurrente y pesado**, dejando a Python
+(LangGraph) el cerebro. Go hace el trabajo "sucio" **en paralelo** y entrega
+**JSON limpio** a la IA → menos tokens, menos ruido, menos latencia.
+
+| Subcomando | Qué hace |
+|---|---|
+| `fetch-commits` | Descubre repos (GitHub) y trae los commits desde ayer **EN PARALELO** (goroutines) |
+| `docker <up\|down\|status>` | Opera `docker compose` de varios proyectos **en paralelo** |
+
+**Cómo se conecta**: los nodos de Python (`node_github`, nodo Docker) llaman al
+binario y parsean su JSON; si el binario no está disponible, usan un **fallback
+en Python** (misma salida). Es solo stdlib de Go (sin dependencias externas).
+
+**Compilar / instalar**:
+```bash
+cd tentacool-io && go build -o tentacool-io .
+install -m755 tentacool-io ~/.local/bin/tentacool-io   # opcional: dejarlo en el PATH
+```
+
+**Próximos usos de Go en el proyecto**: notificaciones (notify-send/ntfy),
+scraping web en paralelo (`fetch-web` → texto limpio para la IA) y un watcher
+de repos/proyectos.
+
+---
+
 ## 📦 Estructura funcional
 
 | Ruta | Propósito |
