@@ -1,0 +1,7 @@
+# Entorno y secretos — NUNCA subir a git
+.env
+.venv/
+__pycache__/
+*.pyc
+*.log
+cron-inicio.log

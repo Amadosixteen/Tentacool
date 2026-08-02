@@ -1,0 +1,6 @@
+langgraph
+notion-client
+openai
+requests
+python-dotenv
+mcp>=1.0,<2.0
