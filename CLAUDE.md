@@ -16,18 +16,38 @@ mañana ni se manda al LLM del orquestador. Solo se lee bajo petición
 explícita. Al leerla, no repitas credenciales más allá de lo que se te
 pregunte.
 
+## Filtrar por fechas
+
+Las dos páginas guardan su contenido en **bases de datos de Notion** con
+una propiedad `Fecha`, así que se puede acotar cualquier periodo — desde
+Notion (filtro nativo `Desde → Hasta`) o desde las tools:
+
+- `notion_leer_memoria(desde, hasta)`
+- `notion_leer_anotaciones(desde, hasta)`
+
+Formatos aceptados: `AAAA-MM-DD`, `DD/MM/AAAA`, `hoy`, `ayer`. Ambos son
+opcionales e inclusive (`hasta` cubre el día entero). Cuando el usuario
+pregunte por un periodo ("lo del mes pasado", "qué hice la semana del 10"),
+**usa el rango** en vez de leerlo todo y filtrar tú: el filtro lo aplica
+Notion y evita traerse meses de historial.
+
+Cada fila lleva además `Tipo` (Anotación · Reporte · Pendiente · Briefing),
+`Origen` (proyecto y rama desde donde se escribió) y `Hecho` (checkbox de
+los pendientes).
+
 ## Regla fija: orden y formato de lo nuevo
 
-**Todo lo que se agregue a la página "Memoria" ya queda automáticamente
-arriba de lo anterior, con fecha/hora en rojo y negrita delante.** Esto lo
-hace `write_notion_memory` (en `src/nodes.py`) por sí sola — tanto si se
-llama desde las tools MCP (`notion_escribir_pendiente`,
-`notion_escribir_reporte`) como desde el CLI (`python main.py nota/pendiente`).
-**No hace falta que la IA agregue la fecha a mano en el texto** — el sistema
-ya la antepone en color fuerte automáticamente.
+**La fecha y la hora las pone el sistema, nunca la IA a mano.** Cada
+escritura guarda su sello de tiempo por su cuenta — como propiedad `Fecha`
+de la fila (modo base de datos) o como cabecera en rojo sobre el bloque
+(modo página). Vale igual desde las tools MCP que desde el CLI. Si escribes
+la fecha dentro del texto, saldrá duplicada.
 
-Excepción conocida: bloques especiales (subpáginas, bases de datos, o
-cualquier bloque con contenido anidado) NO se reordenan — se dejan
+Lo más reciente queda siempre primero: la base se ordena por `Fecha`
+descendente, y en modo página lo nuevo se inserta arriba.
+
+Excepción del modo página: bloques especiales (subpáginas, bases de datos,
+o cualquier bloque con contenido anidado) NO se reordenan — se dejan
 intactos donde están, porque la API de Notion no permite recrearlos igual
 si se borran (ver comentario en `_prepend_blocks`, `src/nodes.py`). Si la
 página tiene una subpágina fija (p. ej. "COMMITS EN VIVO"), lo nuevo queda
@@ -84,6 +104,9 @@ python main.py leer
 
 python main.py anotacion "credenciales del ERP local: ..."   # → Anotaciones
 python main.py anotaciones                                    # leerla
+
+python main.py leer --desde 2026-07-01 --hasta 2026-07-31     # filtrar
+python main.py anotaciones --desde ayer
 ```
 El origen del `anotacion` sale del directorio desde el que lo lances, así
 que conviene ejecutarlo dentro de la carpeta del proyecto en curso.

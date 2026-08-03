@@ -18,10 +18,31 @@ from src.graph import build_fin_graph, build_inicio_graph
 from src.nodes import (
     _contexto_proyecto,
     _sello_tiempo,
-    read_notion_memory,
+    leer_notion,
     write_notion_anotacion,
     write_notion_memory,
 )
+
+
+def _rango(args: list) -> tuple[list, str, str]:
+    """Separa `--desde X` / `--hasta Y` del resto de argumentos.
+
+    Se hace a mano en vez de con argparse porque los comandos toman texto
+    libre ("anotacion la clave es --algo") y argparse se lo comería.
+    """
+    resto, desde, hasta = [], "", ""
+    i = 0
+    while i < len(args):
+        if args[i] in ("--desde", "--hasta") and i + 1 < len(args):
+            if args[i] == "--desde":
+                desde = args[i + 1]
+            else:
+                hasta = args[i + 1]
+            i += 2
+            continue
+        resto.append(args[i])
+        i += 1
+    return resto, desde, hasta
 
 
 def _imprimir(titulo: str, contenido: str) -> None:
@@ -68,18 +89,33 @@ def main() -> int:
         return _anotacion_cli(sys.argv[2:])
 
     if comando == "anotaciones":
-        return _anotaciones_leer_cli()
+        return _anotaciones_leer_cli(sys.argv[2:])
+
+    if comando == "crear-bases":
+        return _crear_bases_cli()
+
+    if comando == "migrar":
+        return _migrar_cli("--dry-run" in sys.argv[2:])
 
     print(
         "Comando desconocido. Usa:\n"
         "  inicio      rutina de la mañana\n"
         "  fin         apagar contenedores\n"
-        "  leer        mostrar la página Memoria de Notion\n"
+        "  leer        mostrar Memoria (admite --desde / --hasta)\n"
         "  nota \"...\"  escribir un reporte/párrafo en Notion\n"
         "  pendiente \"...\"  añadir un checklist pendiente en Notion\n"
         "  anotacion \"...\"  anotar un recurso del día a día\n"
         "                   (página Anotaciones, con fecha y proyecto)\n"
-        "  anotaciones      mostrar la página Anotaciones"
+        "  anotaciones      mostrar Anotaciones (admite --desde / --hasta)\n"
+        "\n"
+        "Bases de datos (filtro por fechas dentro de Notion):\n"
+        "  crear-bases      crear una base en cada página y mostrar sus IDs\n"
+        "  migrar           pasar los bloques existentes a filas\n"
+        "                   (usa --dry-run para revisar antes)\n"
+        "\n"
+        "Filtro por fechas (AAAA-MM-DD, DD/MM/AAAA, 'hoy' o 'ayer'):\n"
+        "  python main.py leer --desde 2026-07-01 --hasta 2026-07-31\n"
+        "  python main.py anotaciones --desde ayer"
     )
     return 2
 
@@ -92,7 +128,17 @@ def _notion_cli(comando: str, args: list) -> int:
     client = Client(auth=settings.notion_token)
     try:
         if comando == "leer":
-            print(read_notion_memory(client, settings.notion_page_id) or "(vacía)")
+            args, desde, hasta = _rango(args)
+            print(
+                leer_notion(
+                    client,
+                    settings.notion_page_id,
+                    settings.notion_memoria_ds_id,
+                    desde,
+                    hasta,
+                )
+                or "(vacía)"
+            )
             return 0
         texto = " ".join(args).strip()
         if not texto:
@@ -141,19 +187,123 @@ def _anotacion_cli(args: list) -> int:
         return 1
 
 
-def _anotaciones_leer_cli() -> int:
-    """Muestra la página 'Anotaciones' por terminal (nunca pasa por el LLM)."""
+def _anotaciones_leer_cli(args: list) -> int:
+    """Muestra 'Anotaciones' por terminal (nunca pasa por el LLM).
+
+    Acepta `--desde` / `--hasta` para acotar el rango.
+    """
     if not settings.notion_token or not settings.notion_anotaciones_page_id:
         print("❌ Falta NOTION_TOKEN o NOTION_ANOTACIONES_PAGE_ID en .env.")
         return 1
+    _, desde, hasta = _rango(args)
     try:
         client = Client(auth=settings.notion_token)
-        texto = read_notion_memory(client, settings.notion_anotaciones_page_id)
+        texto = leer_notion(
+            client,
+            settings.notion_anotaciones_page_id,
+            settings.notion_anotaciones_ds_id,
+            desde,
+            hasta,
+        )
         print(texto or "(página 'Anotaciones' vacía)")
         return 0
+    except ValueError as e:  # fecha mal escrita: es error del usuario, no un fallo
+        print(f"❌ {e}")
+        return 2
     except Exception as e:  # noqa: BLE001
         print(f"❌ Error: {type(e).__name__}: {e}")
         return 1
+
+
+#  Páginas a migrar: (nombre, page_id, ds_id, título de la base, tipo por
+#  defecto de las entradas que no se puedan clasificar).
+def _paginas() -> list[tuple]:
+    return [
+        (
+            "MEMORIA",
+            settings.notion_page_id,
+            settings.notion_memoria_ds_id,
+            "Registro de jornada",
+            "Reporte",
+        ),
+        (
+            "ANOTACIONES",
+            settings.notion_anotaciones_page_id,
+            settings.notion_anotaciones_ds_id,
+            "Registro de recursos",
+            "Anotación",
+        ),
+    ]
+
+
+def _crear_bases_cli() -> int:
+    """Crea una base de datos dentro de cada página y muestra sus IDs.
+
+    No escribe en el .env por su cuenta: se imprimen para pegarlos, porque
+    volver a ejecutarlo crearía bases duplicadas y sobrescribir el .env sin
+    avisar sería la peor forma de descubrirlo.
+    """
+    if not settings.notion_token:
+        print("❌ Falta NOTION_TOKEN en .env.")
+        return 1
+    from src.notion_db import crear_base
+
+    client = Client(auth=settings.notion_token)
+    creadas = []
+    for nombre, page_id, ds_id, titulo, _ in _paginas():
+        if not page_id:
+            print(f"⏭  {nombre}: sin ID de página en .env, se omite.")
+            continue
+        if ds_id:
+            print(f"⏭  {nombre}: ya tiene base configurada ({ds_id}), se omite.")
+            continue
+        try:
+            db_id, nuevo_ds = crear_base(client, page_id, titulo)
+            creadas.append((nombre, db_id, nuevo_ds))
+            print(f"✅ {nombre}: base creada.")
+        except Exception as e:  # noqa: BLE001
+            print(f"❌ {nombre}: {type(e).__name__}: {e}")
+            return 1
+    if creadas:
+        print("\nAñade esto a tu .env:")
+        for nombre, _, ds in creadas:
+            clave = "NOTION_MEMORIA_DS_ID" if nombre == "MEMORIA" else (
+                "NOTION_ANOTACIONES_DS_ID"
+            )
+            print(f'{clave}="{ds}"')
+        print("\nDespués: python main.py migrar --dry-run")
+    return 0
+
+
+def _migrar_cli(dry_run: bool) -> int:
+    """Lleva a las bases lo que ya está escrito como bloques en las páginas.
+
+    Las páginas NO se tocan: quedan como archivo histórico, así que la
+    migración se puede revisar (y repetir) sin haber perdido nada.
+    """
+    if not settings.notion_token:
+        print("❌ Falta NOTION_TOKEN en .env.")
+        return 1
+    from src.migracion import migrar_pagina
+
+    client = Client(auth=settings.notion_token)
+    if dry_run:
+        print("🔍 Simulación: no se escribe nada en Notion.\n")
+    for nombre, page_id, ds_id, _, defecto in _paginas():
+        if not page_id or not ds_id:
+            print(f"⏭  {nombre}: falta page_id o data source, se omite.")
+            continue
+        r = migrar_pagina(client, page_id, ds_id, defecto, dry_run=dry_run)
+        print(f"=== {nombre}: {r['total']} entradas ({r['sin_fecha']} sin fecha) ===")
+        for fecha, tipo, muestra in r["detalle"]:
+            sello = f"{fecha:%d/%m/%Y %H:%M}" if fecha else "   sin fecha  "
+            print(f"  {sello} | {tipo:10} | {muestra}")
+        if not dry_run:
+            print(f"  → {r['migradas']} migradas · {r['errores'] or 'sin errores'}")
+        print()
+    if dry_run:
+        print("Si la clasificación te cuadra: python main.py migrar")
+    return 0
 
 
 if __name__ == "__main__":

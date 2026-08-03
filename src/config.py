@@ -140,6 +140,19 @@ class Settings:
     navegador_habilitado: bool = _env_bool("BROWSER_ENABLED", True)
     vscode_habilitado: bool = _env_bool("VSCODE_ENABLED", True)
 
+    # ── Notion: bases de datos (registro filtrable por fechas) ──
+    # Cuando están definidas, la escritura va a la base en vez de a los
+    # bloques de la página: Notion puede entonces filtrar por rango de
+    # fechas desde su propia interfaz. Vacías → modo bloques (compatible).
+    # Se guarda el data_source_id porque es lo que la API 2025-09-03 usa
+    # para escribir y consultar (el database_id solo sirve para abrirla).
+    notion_memoria_ds_id: str = field(
+        default_factory=lambda: os.getenv("NOTION_MEMORIA_DS_ID", "").strip()
+    )
+    notion_anotaciones_ds_id: str = field(
+        default_factory=lambda: os.getenv("NOTION_ANOTACIONES_DS_ID", "").strip()
+    )
+
     # ── Zona horaria ──
     # Todas las fechas que se escriben en Notion (y la que se le pasa al LLM)
     # usan esta zona, no la del sistema: bajo cron la TZ puede no heredarse.

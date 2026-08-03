@@ -28,7 +28,7 @@ from src.config import settings
 from src.nodes import (
     _contexto_proyecto,
     _sello_tiempo,
-    read_notion_memory,
+    leer_notion,
     write_notion_anotacion,
     write_notion_memory,
 )
@@ -41,17 +41,32 @@ def _client() -> Client:
 
 
 @mcp.tool()
-def notion_leer_memoria() -> str:
-    """Lee TODO el texto de la página 'Memoria' de Notion.
+def notion_leer_memoria(desde: str = "", hasta: str = "") -> str:
+    """Lee 'Memoria' de Notion: reportes y pendientes de la jornada.
 
-    Devuelve el contexto diario: lo avanzado, lo pendiente y lo siguiente.
+    Devuelve el contexto diario: lo avanzado, lo pendiente y lo siguiente,
+    de lo más reciente a lo más antiguo.
+
+    Args:
+        desde: fecha inicial del rango (AAAA-MM-DD, DD/MM/AAAA, 'hoy' o
+            'ayer'). Vacío = sin límite inferior.
+        hasta: fecha final del rango, incluida entera. Vacío = hasta hoy.
+
+    Úsalo con rango cuando pregunten por un periodo concreto ("lo del mes
+    pasado", "qué hice la semana del 10"); sin rango devuelve lo reciente.
     """
     if not settings.notion_token or not settings.notion_page_id:
         return "[Notion no configurado: token o ID de página vacíos]"
     try:
-        return read_notion_memory(_client(), settings.notion_page_id) or (
-            "(página 'Memoria' vacía)"
-        )
+        return leer_notion(
+            _client(),
+            settings.notion_page_id,
+            settings.notion_memoria_ds_id,
+            desde,
+            hasta,
+        ) or "(página 'Memoria' vacía)"
+    except ValueError as e:
+        return f"[{e}]"
     except Exception as e:  # noqa: BLE001
         return f"[Error leyendo Notion: {type(e).__name__}: {e}]"
 
@@ -87,19 +102,30 @@ def notion_escribir_reporte(texto: str) -> str:
 
 
 @mcp.tool()
-def notion_leer_anotaciones() -> str:
-    """Lee TODO el texto de la página 'Anotaciones' de Notion.
+def notion_leer_anotaciones(desde: str = "", hasta: str = "") -> str:
+    """Lee 'Anotaciones' de Notion: recursos del día a día.
 
-    Es la bitácora de recursos del día a día: enlaces, credenciales, cosas
-    a mano. Úsalo cuando pregunten por un recurso, un dato o "dónde estaba
-    tal cosa". Su contenido es privado: no lo repitas más de lo necesario.
+    Enlaces, credenciales, comandos, cosas a mano. Úsalo cuando pregunten
+    por un recurso, un dato o "dónde estaba tal cosa". Su contenido es
+    privado: no lo repitas más allá de lo que se te pregunte.
+
+    Args:
+        desde: fecha inicial del rango (AAAA-MM-DD, DD/MM/AAAA, 'hoy' o
+            'ayer'). Vacío = sin límite inferior.
+        hasta: fecha final del rango, incluida entera. Vacío = hasta hoy.
     """
     if not settings.notion_token or not settings.notion_anotaciones_page_id:
         return "[Anotaciones no configurado: falta NOTION_ANOTACIONES_PAGE_ID]"
     try:
-        return read_notion_memory(
-            _client(), settings.notion_anotaciones_page_id
+        return leer_notion(
+            _client(),
+            settings.notion_anotaciones_page_id,
+            settings.notion_anotaciones_ds_id,
+            desde,
+            hasta,
         ) or "(página 'Anotaciones' vacía)"
+    except ValueError as e:
+        return f"[{e}]"
     except Exception as e:  # noqa: BLE001
         return f"[Error leyendo Anotaciones: {type(e).__name__}: {e}]"
 

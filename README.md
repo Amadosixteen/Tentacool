@@ -28,6 +28,11 @@ todo orquestado con LangGraph + Golang.
   contexto entre apps. Dos canales separados: **Memoria** (jornada:
   reportes y pendientes) y **Anotaciones** (recursos del día a día, cada
   entrada sellada con día, hora exacta y proyecto de origen).
+- **Historial que no se te va de las manos** — todo se guarda en bases de
+  datos de Notion con propiedades `Fecha`, `Tipo` y `Origen`, así que a los
+  seis meses sigues encontrando lo de julio: filtras `Desde → Hasta` desde
+  la propia interfaz de Notion, o le pides el rango a la IA
+  (`main.py leer --desde 2026-07-01 --hasta 2026-07-31`).
 - **Cualquier LLM, tu propia key** — compatible con la API de OpenAI entre otros 
   (DeepSeek por defecto, si orquestara 10 + Api keys distintos Provedores, Modelos, Provedores, entornos Docker, Multiples cuentas Notion, Gmail entre otros mas).
 .
@@ -57,6 +62,16 @@ git clone <tu-repo> tentacool && cd tentacool
 bash setup.sh               # crea .venv, instala deps, genera .env y .mcp.json
 nano .env                   # rellena tus claves (todas opcionales)
 ./.venv/bin/python main.py inicio    # prueba la rutina de la mañana
+```
+
+Con Notion configurado, un paso más para tener el historial filtrable por
+fechas (crea una base de datos dentro de cada página y pasa a filas lo que
+ya tuvieras escrito; las páginas no se tocan):
+
+```bash
+./.venv/bin/python main.py crear-bases      # imprime los IDs para el .env
+./.venv/bin/python main.py migrar --dry-run # revisar antes de escribir
+./.venv/bin/python main.py migrar
 ```
 
 La única clave con la que vale la pena empezar es `LLM_API_KEY` (o

@@ -14,6 +14,7 @@ import json
 import os
 import re
 import shutil
+from dataclasses import dataclass, field as dataclass_field
 import subprocess
 from datetime import datetime, timedelta
 from zoneinfo import ZoneInfo
@@ -286,6 +287,190 @@ def read_notion_memory(client: Client, page_id: str) -> str:
     return "\n".join(lineas)
 
 
+# ─────────────────────────────────────────────────────────────────────
+#  FILTRAR por rango de fechas (desde → hasta)
+#
+#  Las páginas crecen sin límite y lo viejo queda cada vez más abajo. Como
+#  cada entrada que escribe el orquestador empieza por una cabecera con
+#  sello de tiempo (`_bloque_fecha`), esa cabecera funciona de índice: se
+#  parsea y se puede acotar "lo del mes pasado" sin scrollear.
+# ─────────────────────────────────────────────────────────────────────
+# Acepta el formato actual (con día de la semana y origen) y el antiguo
+# (solo fecha y hora), para que las entradas viejas no queden fuera.
+_RE_CABECERA = re.compile(
+    r"^\s*🕐\s*(?:[a-záéíóúü]+\s+)?"          # día de la semana, opcional
+    r"(\d{1,2})/(\d{1,2})/(\d{4})"            # dd/mm/yyyy
+    r"(?:\s+(\d{1,2}):(\d{2}))?"              # hh:mm, opcional
+    r"(?:.*?📁\s*(.+?))?\s*$",                # · 📁 proyecto, opcional
+    re.IGNORECASE,
+)
+
+
+@dataclass
+class Entrada:
+    """Un bloque de contenido de la página con su sello de tiempo.
+
+    `fecha` es None en el contenido escrito a mano (o anterior a que el
+    orquestador pusiera cabeceras): no se puede ubicar en el tiempo, así
+    que los filtros por rango lo dejan fuera en vez de adivinar.
+    """
+
+    fecha: Optional[datetime]
+    origen: str
+    cabecera: str
+    lineas: list[str] = dataclass_field(default_factory=list)
+
+    def texto(self) -> str:
+        partes = ([self.cabecera] if self.cabecera else []) + self.lineas
+        return "\n".join(partes)
+
+
+def parsear_entradas(bloques: list[str]) -> list[Entrada]:
+    """Agrupa el texto de la página en entradas, una por cabecera.
+
+    Recibe el texto de cada bloque, pero parte por saltos de línea: un solo
+    bloque de Notion puede contener la cabecera y su contenido dentro del
+    mismo párrafo (así escribía la versión antigua), y mirando bloque a
+    bloque esas cabeceras se perderían.
+    """
+    lineas = [l for b in bloques for l in b.split("\n")]
+    entradas: list[Entrada] = []
+    actual = Entrada(fecha=None, origen="", cabecera="")
+    for linea in lineas:
+        m = _RE_CABECERA.match(linea)
+        if not m:
+            actual.lineas.append(linea)
+            continue
+        if actual.cabecera or actual.lineas:
+            entradas.append(actual)
+        dia, mes, anio, hora, minuto, origen = m.groups()
+        actual = Entrada(
+            fecha=datetime(
+                int(anio), int(mes), int(dia), int(hora or 0), int(minuto or 0)
+            ),
+            origen=(origen or "").strip(),
+            cabecera=linea,
+        )
+    if actual.cabecera or actual.lineas:
+        entradas.append(actual)
+    return entradas
+
+
+def parsear_fecha(texto: str, fin_de_dia: bool = False) -> Optional[datetime]:
+    """Convierte lo que escriba el usuario en una fecha.
+
+    Acepta `2026-07-01`, `01/07/2026`, `hoy` y `ayer`. Con `fin_de_dia` la
+    devuelve a las 23:59 para que un rango "hasta el 31" incluya ese día
+    entero y no se corte a medianoche.
+    """
+    texto = (texto or "").strip().lower()
+    if not texto:
+        return None
+    hoy = _ahora().replace(tzinfo=None, hour=0, minute=0, second=0, microsecond=0)
+    if texto == "hoy":
+        base = hoy
+    elif texto == "ayer":
+        base = hoy - timedelta(days=1)
+    else:
+        for formato in ("%Y-%m-%d", "%d/%m/%Y", "%d-%m-%Y", "%Y/%m/%d"):
+            try:
+                base = datetime.strptime(texto, formato)
+                break
+            except ValueError:
+                continue
+        else:
+            raise ValueError(
+                f"Fecha no reconocida: {texto!r}. "
+                "Usa AAAA-MM-DD, DD/MM/AAAA, 'hoy' o 'ayer'."
+            )
+    return base.replace(hour=23, minute=59) if fin_de_dia else base
+
+
+def filtrar_entradas(
+    entradas: list[Entrada],
+    desde: Optional[datetime] = None,
+    hasta: Optional[datetime] = None,
+) -> list[Entrada]:
+    """Deja solo las entradas cuyo sello cae dentro del rango (inclusive).
+
+    Las entradas sin fecha se descartan: no se puede afirmar que estén en
+    el rango. Sin `desde` ni `hasta`, devuelve todo tal cual.
+    """
+    if desde is None and hasta is None:
+        return list(entradas)
+    dentro = []
+    for e in entradas:
+        if e.fecha is None:
+            continue
+        if desde is not None and e.fecha < desde:
+            continue
+        if hasta is not None and e.fecha > hasta:
+            continue
+        dentro.append(e)
+    return dentro
+
+
+def leer_notion(
+    client: Client,
+    page_id: str,
+    data_source_id: str = "",
+    desde: str = "",
+    hasta: str = "",
+    limite: int = 50,
+) -> str:
+    """Lee una página o su base de datos, opcionalmente acotada por fechas.
+
+    Es el único punto de lectura que deben usar el CLI, el MCP y los nodos:
+    con base de datos configurada consulta las filas (y deja que Notion
+    aplique el filtro), y sin ella cae a los bloques de la página. Así, tras
+    migrar, nadie se queda leyendo la página vieja y congelada.
+    """
+    if data_source_id:
+        from .notion_db import consultar, formatear
+
+        d = parsear_fecha(desde)
+        h = parsear_fecha(hasta, fin_de_dia=True)
+        if d and h and d > h:
+            d, h = h, d
+        filas = consultar(client, data_source_id, desde=d, hasta=h, limite=limite)
+        return formatear(filas, client)
+    return leer_notion_filtrado(client, page_id, desde, hasta)
+
+
+def leer_notion_filtrado(
+    client: Client,
+    page_id: str,
+    desde: str = "",
+    hasta: str = "",
+) -> str:
+    """Lee una página de Notion acotada a un rango de fechas.
+
+    Devuelve el texto de las entradas que caen dentro, más una línea final
+    con cuántas quedaron fuera — incluidas las que no tienen sello de
+    tiempo, para que no parezca que la página está más vacía de lo que está.
+    """
+    entradas = parsear_entradas(_leer_bloques_recursivo(client, page_id))
+    d = parsear_fecha(desde)
+    h = parsear_fecha(hasta, fin_de_dia=True)
+    if d and h and d > h:
+        d, h = h, d
+    dentro = filtrar_entradas(entradas, d, h)
+
+    if d is None and h is None:
+        return "\n".join(e.texto() for e in entradas)
+
+    rango = f"{d:%d/%m/%Y}" if d else "el inicio"
+    rango += f" → {h:%d/%m/%Y}" if h else " → hoy"
+    if not dentro:
+        return f"(sin entradas entre {rango}; la página tiene {len(entradas)})"
+
+    sin_fecha = sum(1 for e in entradas if e.fecha is None)
+    pie = f"\n\n── {len(dentro)} de {len(entradas)} entradas · {rango}"
+    if sin_fecha:
+        pie += f" · {sin_fecha} sin sello de tiempo (no filtrables)"
+    return "\n\n".join(e.texto() for e in dentro) + pie
+
+
 # El LLM devuelve markdown (**negrita**, `código`, ## títulos). La API de
 # Notion no lo interpreta: si se manda como texto plano, los asteriscos y
 # almohadillas se ven literales en la página. Hay que traducirlos a las
@@ -515,14 +700,40 @@ def write_notion_memory(
     page_id: str,
     pendientes: Optional[list[str]] = None,
     reportes: Optional[list[str]] = None,
+    tipo_reporte: str = "Reporte",
+    data_source_id: Optional[str] = None,
 ) -> int:
-    """ESCRIBE pendientes y reportes AL INICIO de la página (lo nuevo arriba),
-    precedidos por un timestamp en color fuerte (rojo, negrita).
+    """ESCRIBE pendientes y reportes en 'Memoria'.
 
-    · pendientes → checklists (to_do, sin marcar)
-    · reportes   → párrafos libres
-    Devuelve cuántos bloques se añadieron.
+    Si hay una base de datos configurada (`NOTION_MEMORIA_DS_ID`), cada
+    cosa va como una FILA con su fecha y tipo — que es lo que permite
+    filtrar por rango desde la propia interfaz de Notion.
+
+    Sin base configurada, cae al modo antiguo de bloques: se insertan AL
+    INICIO de la página (lo nuevo arriba) precedidos de un timestamp en
+    rojo. Se mantiene para que el proyecto siga funcionando recién clonado,
+    antes de crear las bases.
+
+    · pendientes → filas Tipo=Pendiente (o checklists `to_do`)
+    · reportes   → filas Tipo=`tipo_reporte` (o párrafos)
+    Devuelve cuántas filas/bloques se añadieron.
     """
+    ds = data_source_id if data_source_id is not None else settings.notion_memoria_ds_id
+    if ds:
+        from .notion_db import crear_fila
+
+        ahora = _ahora()
+        n = 0
+        for p in pendientes or []:
+            if p.strip():
+                crear_fila(client, ds, p, tipo="Pendiente", fecha=ahora)
+                n += 1
+        for r in reportes or []:
+            if r.strip():
+                crear_fila(client, ds, r, tipo=tipo_reporte, fecha=ahora)
+                n += 1
+        return n
+
     nuevos: list[dict[str, Any]] = []
     if pendientes:
         nuevos.append(_bloque_fecha())
@@ -543,37 +754,65 @@ def write_notion_anotacion(
     texto: str,
     origen: Optional[str] = None,
     dt: Optional[datetime] = None,
+    data_source_id: Optional[str] = None,
 ) -> int:
-    """Añade una ANOTACIÓN al inicio de la página 'Anotaciones'.
+    """Añade una ANOTACIÓN a 'Anotaciones'.
 
-    Cada entrada lleva su cabecera con día de la semana, fecha, hora y
-    minuto exactos, más el proyecto desde el que se anotó — así después se
-    puede reconstruir en qué se estaba trabajando en ese momento.
+    Con base de datos configurada (`NOTION_ANOTACIONES_DS_ID`) va como fila
+    con Fecha y Origen en propiedades, filtrables desde Notion. Sin ella,
+    como bloques con cabecera de sello de tiempo.
 
-    OJO: esta página es solo de ESCRITURA para el orquestador. Su contenido
-    no se lee en `node_notion` ni entra en el prompt de `node_resumen`,
-    porque aquí se guardan credenciales y recursos privados que no deben
-    salir hacia la API del LLM.
+    En los dos casos queda registrado el día de la semana, la fecha, la
+    hora y el minuto exactos, más el proyecto desde el que se anotó — así
+    después se puede reconstruir en qué se estaba trabajando.
+
+    OJO: 'Anotaciones' es solo de ESCRITURA para el orquestador. No se lee
+    en `node_notion` ni entra en el prompt de `node_resumen`, porque aquí
+    se guardan credenciales y recursos privados que no deben salir hacia la
+    API del LLM.
     """
     texto = (texto or "").strip()
     if not texto:
         return 0
-    nuevos = [
-        _bloque_fecha(dt, origen or _contexto_proyecto()),
-        _bloque_parrafo(texto),
-    ]
+    origen = origen or _contexto_proyecto()
+
+    ds = (
+        data_source_id
+        if data_source_id is not None
+        else settings.notion_anotaciones_ds_id
+    )
+    if ds:
+        from .notion_db import crear_fila
+
+        crear_fila(
+            client, ds, texto, tipo="Anotación", fecha=dt or _ahora(), origen=origen
+        )
+        return 1
+
+    nuevos = [_bloque_fecha(dt, origen), _bloque_parrafo(texto)]
     return _prepend_blocks(client, page_id, nuevos)
 
 
+# Cuántas entradas recientes de 'Memoria' entran en el contexto del
+# briefing. La base crece sin límite, pero el briefing solo necesita los
+# últimos días: mandarla entera sería gastar tokens en historia antigua.
+_ENTRADAS_CONTEXTO = 15
+
+
 def node_notion(state: dict) -> dict:
-    """Lee el contexto de la página 'Memoria' y, si hay pendientes/reportes
-    en el estado, los ESCRIBE (append) en la misma página."""
+    """Lee el contexto reciente de 'Memoria' y, si hay pendientes/reportes
+    en el estado, los ESCRIBE (en la base de datos, o en la página)."""
     if not settings.notion_token or not settings.notion_page_id:
         return {"notion_context": "[Notion: falta NOTION_TOKEN o ID de página]"}
     client = Client(auth=settings.notion_token)
-    # 1) LEER todo el texto de la página
+    # 1) LEER el contexto reciente (de la base si está configurada)
     try:
-        contexto = read_notion_memory(client, settings.notion_page_id)
+        contexto = leer_notion(
+            client,
+            settings.notion_page_id,
+            settings.notion_memoria_ds_id,
+            limite=_ENTRADAS_CONTEXTO,
+        )
     except Exception as e:  # noqa: BLE001
         return {
             "notion_context": f"[Notion: error al leer: {type(e).__name__}: {e}]"
@@ -586,7 +825,7 @@ def node_notion(state: dict) -> dict:
             n = write_notion_memory(
                 client, settings.notion_page_id, pendientes, reportes
             )
-            contexto += f"\n\n[+{n} bloques escritos en la página]"
+            contexto += f"\n\n[+{n} entradas escritas en Memoria]"
         except Exception as e:  # noqa: BLE001
             contexto += f"\n\n[Notion: error al escribir: {type(e).__name__}: {e}]"
     return {"notion_context": contexto or "(página 'Memoria' vacía)"}
@@ -677,6 +916,7 @@ def node_resumen(state: dict) -> dict:
                 Client(auth=settings.notion_token),
                 settings.notion_page_id,
                 reportes=[briefing],
+                tipo_reporte="Briefing",
             )
             escrito = f"✅ Briefing escrito en Notion (+{n} bloque(s))"
         except Exception as e:  # noqa: BLE001
