@@ -94,6 +94,16 @@ class Settings:
         default_factory=lambda: os.getenv("NOTION_PAGE_URL", "")
     )
 
+    # ── Notion (página libre "Anotaciones") ──
+    # Bitácora del día a día: recursos, credenciales y cosas a mano. Es una
+    # página APARTE de "Memoria" a propósito: su contenido NUNCA se lee ni se
+    # manda al LLM (ver node_notion / node_resumen), solo se escribe.
+    notion_anotaciones_page_id: str = field(
+        default_factory=lambda: _normalize_page_id(
+            os.getenv("NOTION_ANOTACIONES_PAGE_ID", "")
+        )
+    )
+
     # ── Navegador (abrir pestañas; Brave por defecto, xdg-open fallback) ──
     brave_bin: str = field(
         default_factory=lambda: os.getenv("BROWSER_CMD", "brave-browser")
@@ -129,6 +139,13 @@ class Settings:
     docker_habilitado: bool = _env_bool("DOCKER_ENABLED", False)
     navegador_habilitado: bool = _env_bool("BROWSER_ENABLED", True)
     vscode_habilitado: bool = _env_bool("VSCODE_ENABLED", True)
+
+    # ── Zona horaria ──
+    # Todas las fechas que se escriben en Notion (y la que se le pasa al LLM)
+    # usan esta zona, no la del sistema: bajo cron la TZ puede no heredarse.
+    timezone: str = field(
+        default_factory=lambda: os.getenv("TENTACOOL_TZ", "America/Lima")
+    )
 
     # ── CLI de Go (I/O concurrente: GitHub en paralelo) ──
     # Si el binario está en el PATH o se indica una ruta, los nodos lo usan

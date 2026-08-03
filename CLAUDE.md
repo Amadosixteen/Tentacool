@@ -1,5 +1,21 @@
 # Orquestador — reglas para escribir en Notion
 
+## Dos páginas, dos propósitos — no mezclarlas
+
+| Página | Para qué | Herramientas |
+|---|---|---|
+| **Memoria** | Jornada: reportes de lo hecho y pendientes | `notion_leer_memoria`, `notion_escribir_reporte`, `notion_escribir_pendiente` |
+| **Anotaciones** | Día a día: recursos, enlaces, credenciales, datos a mano | `notion_leer_anotaciones`, `notion_escribir_anotacion` |
+
+Si es una tarea o un resumen de jornada → **Memoria**. Si es un dato que
+hay que tener a mano (una URL, un usuario, una clave, un comando) →
+**Anotaciones**.
+
+**Anotaciones es privada**: su contenido nunca entra en el briefing de la
+mañana ni se manda al LLM del orquestador. Solo se lee bajo petición
+explícita. Al leerla, no repitas credenciales más allá de lo que se te
+pregunte.
+
 ## Regla fija: orden y formato de lo nuevo
 
 **Todo lo que se agregue a la página "Memoria" ya queda automáticamente
@@ -44,6 +60,17 @@ usa las herramientas MCP `notion_*` que ya están disponibles:
 - `notion_escribir_reporte(texto)` → para el resumen de lo hecho en la jornada
   (la añade como párrafo).
 
+Y para la bitácora de recursos:
+
+- `notion_leer_anotaciones()` → lee la página "Anotaciones" (recursos,
+  enlaces, credenciales). Úsalo cuando pregunten "dónde estaba tal cosa".
+- `notion_escribir_anotacion(texto, proyecto="")` → guarda un recurso del
+  día a día. Cada entrada queda con **día de la semana, fecha, hora y
+  minuto exactos** más el **proyecto de origen**, para reconstruir después
+  en qué se estaba trabajando. Si omites `proyecto`, se detecta solo del
+  directorio de trabajo (repo git + rama) — normalmente eso es lo correcto;
+  pásalo a mano solo si el recurso viene de otro sitio.
+
 ## Flujo recomendado al cerrar la jornada
 1. `notion_leer_memoria()` para ver el contexto del día.
 2. `notion_escribir_reporte(...)` con un resumen de lo avanzado hoy.
@@ -54,4 +81,9 @@ usa las herramientas MCP `notion_*` que ya están disponibles:
 python main.py nota "resumen de lo hecho..."
 python main.py pendiente "pendiente..."
 python main.py leer
+
+python main.py anotacion "credenciales del ERP local: ..."   # → Anotaciones
+python main.py anotaciones                                    # leerla
 ```
+El origen del `anotacion` sale del directorio desde el que lo lances, así
+que conviene ejecutarlo dentro de la carpeta del proyecto en curso.

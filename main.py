@@ -15,7 +15,13 @@ from notion_client import Client
 
 from src.config import settings
 from src.graph import build_fin_graph, build_inicio_graph
-from src.nodes import read_notion_memory, write_notion_memory
+from src.nodes import (
+    _contexto_proyecto,
+    _sello_tiempo,
+    read_notion_memory,
+    write_notion_anotacion,
+    write_notion_memory,
+)
 
 
 def _imprimir(titulo: str, contenido: str) -> None:
@@ -58,13 +64,22 @@ def main() -> int:
     if comando in ("leer", "nota", "pendiente"):
         return _notion_cli(comando, sys.argv[2:])
 
+    if comando == "anotacion":
+        return _anotacion_cli(sys.argv[2:])
+
+    if comando == "anotaciones":
+        return _anotaciones_leer_cli()
+
     print(
         "Comando desconocido. Usa:\n"
         "  inicio      rutina de la mañana\n"
         "  fin         apagar contenedores\n"
         "  leer        mostrar la página Memoria de Notion\n"
         "  nota \"...\"  escribir un reporte/párrafo en Notion\n"
-        "  pendiente \"...\"  añadir un checklist pendiente en Notion"
+        "  pendiente \"...\"  añadir un checklist pendiente en Notion\n"
+        "  anotacion \"...\"  anotar un recurso del día a día\n"
+        "                   (página Anotaciones, con fecha y proyecto)\n"
+        "  anotaciones      mostrar la página Anotaciones"
     )
     return 2
 
@@ -89,6 +104,52 @@ def _notion_cli(comando: str, args: list) -> int:
         else:  # pendiente
             n = write_notion_memory(client, settings.notion_page_id, pendientes=[texto])
             print(f"✅ Pendiente añadido a Notion (+{n} bloque).")
+        return 0
+    except Exception as e:  # noqa: BLE001
+        print(f"❌ Error: {type(e).__name__}: {e}")
+        return 1
+
+
+def _anotacion_cli(args: list) -> int:
+    """Anota en la página 'Anotaciones' con sello de tiempo y proyecto.
+
+    El origen se detecta del directorio actual, así que conviene lanzarlo
+    desde la carpeta del proyecto en el que estás trabajando.
+    """
+    if not settings.notion_token or not settings.notion_anotaciones_page_id:
+        print(
+            "❌ Falta NOTION_TOKEN o NOTION_ANOTACIONES_PAGE_ID en .env.\n"
+            "   Recuerda compartir la página con la integración de Notion."
+        )
+        return 1
+    texto = " ".join(args).strip()
+    if not texto:
+        print('❌ Falta el texto. Uso: python main.py anotacion "..."')
+        return 2
+    origen = _contexto_proyecto()
+    try:
+        n = write_notion_anotacion(
+            Client(auth=settings.notion_token),
+            settings.notion_anotaciones_page_id,
+            texto,
+            origen=origen,
+        )
+        print(f"✅ Anotación guardada (+{n} bloques) · {_sello_tiempo()} · 📁 {origen}")
+        return 0
+    except Exception as e:  # noqa: BLE001
+        print(f"❌ Error: {type(e).__name__}: {e}")
+        return 1
+
+
+def _anotaciones_leer_cli() -> int:
+    """Muestra la página 'Anotaciones' por terminal (nunca pasa por el LLM)."""
+    if not settings.notion_token or not settings.notion_anotaciones_page_id:
+        print("❌ Falta NOTION_TOKEN o NOTION_ANOTACIONES_PAGE_ID en .env.")
+        return 1
+    try:
+        client = Client(auth=settings.notion_token)
+        texto = read_notion_memory(client, settings.notion_anotaciones_page_id)
+        print(texto or "(página 'Anotaciones' vacía)")
         return 0
     except Exception as e:  # noqa: BLE001
         print(f"❌ Error: {type(e).__name__}: {e}")

@@ -12,9 +12,11 @@ from __future__ import annotations
 
 import json
 import os
+import re
 import shutil
 import subprocess
 from datetime import datetime, timedelta
+from zoneinfo import ZoneInfo
 from typing import Any, Optional, TypedDict
 
 import requests
@@ -204,7 +206,7 @@ def node_github(state: dict) -> dict:
         "Authorization": f"Bearer {settings.github_token}",
         "Accept": "application/vnd.github+json",
     }
-    since = (datetime.now() - timedelta(days=1)).isoformat()
+    since = (_ahora() - timedelta(days=1)).isoformat()
     try:
         # Descubrimiento dinámico: TODOS los repos accesibles con el token
         r = requests.get(
@@ -284,13 +286,59 @@ def read_notion_memory(client: Client, page_id: str) -> str:
     return "\n".join(lineas)
 
 
+# El LLM devuelve markdown (**negrita**, `código`, ## títulos). La API de
+# Notion no lo interpreta: si se manda como texto plano, los asteriscos y
+# almohadillas se ven literales en la página. Hay que traducirlos a las
+# anotaciones de rich_text.
+_MD_TITULO = re.compile(r"^\s*#{1,6}\s+(.+?)\s*$", re.MULTILINE)
+_MD_INLINE = re.compile(r"\*\*(.+?)\*\*|__(.+?)__|`([^`]+)`")
+
+# Notion rechaza cualquier fragmento de rich_text de más de 2000 caracteres.
+_MAX_RICH_TEXT = 2000
+
+
+def _rich_text(texto: str) -> list[dict[str, Any]]:
+    """Traduce el markdown inline del LLM a fragmentos rich_text de Notion.
+
+    · `**x**` / `__x__` → negrita   · `` `x` `` → código
+    · `## Título`       → la línea entera en negrita
+    """
+    texto = _MD_TITULO.sub(r"**\1**", texto)
+
+    partes: list[tuple[str, dict[str, bool]]] = []
+    pos = 0
+    for m in _MD_INLINE.finditer(texto):
+        if m.start() > pos:
+            partes.append((texto[pos:m.start()], {}))
+        negrita, negrita_alt, codigo = m.group(1), m.group(2), m.group(3)
+        if codigo is not None:
+            partes.append((codigo, {"code": True}))
+        else:
+            partes.append((negrita or negrita_alt, {"bold": True}))
+        pos = m.end()
+    if pos < len(texto):
+        partes.append((texto[pos:], {}))
+
+    fragmentos: list[dict[str, Any]] = []
+    for contenido, anotaciones in partes:
+        if not contenido:
+            continue
+        for i in range(0, len(contenido), _MAX_RICH_TEXT):
+            frag: dict[str, Any] = {
+                "type": "text",
+                "text": {"content": contenido[i : i + _MAX_RICH_TEXT]},
+            }
+            if anotaciones:
+                frag["annotations"] = dict(anotaciones)
+            fragmentos.append(frag)
+    return fragmentos
+
+
 def _bloque_parrafo(texto: str) -> dict[str, Any]:
     return {
         "object": "block",
         "type": "paragraph",
-        "paragraph": {
-            "rich_text": [{"type": "text", "text": {"content": texto}}]
-        },
+        "paragraph": {"rich_text": _rich_text(texto)},
     }
 
 
@@ -299,29 +347,91 @@ def _bloque_todo(texto: str, checked: bool = False) -> dict[str, Any]:
         "object": "block",
         "type": "to_do",
         "to_do": {
-            "rich_text": [{"type": "text", "text": {"content": texto}}],
+            "rich_text": _rich_text(texto),
             "checked": checked,
         },
     }
 
 
-def _bloque_fecha(dt: Optional[datetime] = None) -> dict[str, Any]:
+def _ahora() -> datetime:
+    """Hora actual en la zona configurada (`TENTACOOL_TZ`, Lima por defecto).
+
+    No se usa `datetime.now()` a secas porque bajo cron la TZ del sistema
+    puede no heredarse y las fechas del reporte saldrían corridas.
+    """
+    try:
+        return datetime.now(ZoneInfo(settings.timezone))
+    except Exception:  # noqa: BLE001 — zona inválida: mejor hora local que fallar
+        return datetime.now()
+
+
+# `%A` depende del locale del sistema, que bajo cron puede ser C/POSIX y
+# devolver los días en inglés. Se fija a mano para que siempre salga igual.
+_DIAS = (
+    "lunes", "martes", "miércoles", "jueves", "viernes", "sábado", "domingo",
+)
+
+
+def _sello_tiempo(dt: Optional[datetime] = None) -> str:
+    """Fecha completa con día de la semana, hora y minuto exactos."""
+    dt = dt or _ahora()
+    return f"{_DIAS[dt.weekday()]} {dt:%d/%m/%Y %H:%M}"
+
+
+def _contexto_proyecto(ruta: Optional[str] = None) -> str:
+    """De dónde sale la anotación: proyecto (repo git o carpeta) y rama.
+
+    Sirve para reconstruir después en qué se estaba trabajando en ese
+    momento. Si no hay git, se usa el nombre de la carpeta a secas.
+    """
+    ruta = ruta or os.getcwd()
+    raiz = _git(ruta, "rev-parse", "--show-toplevel") or ruta
+    nombre = os.path.basename(os.path.normpath(raiz))
+    rama = _git(ruta, "rev-parse", "--abbrev-ref", "HEAD")
+    return f"{nombre} ({rama})" if rama else nombre
+
+
+def _git(ruta: str, *args: str) -> str:
+    """Ejecuta git en `ruta` y devuelve su salida, o "" ante cualquier fallo
+    (carpeta sin repo, git no instalado, permisos…). Nunca lanza."""
+    try:
+        out = subprocess.run(
+            ["git", *args],
+            cwd=ruta,
+            capture_output=True,
+            text=True,
+            timeout=5,
+        )
+        return out.stdout.strip() if out.returncode == 0 else ""
+    except Exception:  # noqa: BLE001
+        return ""
+
+
+def _bloque_fecha(
+    dt: Optional[datetime] = None, origen: Optional[str] = None
+) -> dict[str, Any]:
     """Timestamp de cuándo se agregó el bloque, en color fuerte para que
-    resalte de inmediato al abrir la página."""
-    dt = dt or datetime.now()
-    texto = dt.strftime("%d/%m/%Y %H:%M")
+    resalte de inmediato al abrir la página. Si se pasa `origen`, se añade
+    de dónde vino la anotación (proyecto y rama)."""
+    fragmentos: list[dict[str, Any]] = [
+        {
+            "type": "text",
+            "text": {"content": f"🕐 {_sello_tiempo(dt)}"},
+            "annotations": {"bold": True, "color": "red"},
+        }
+    ]
+    if origen:
+        fragmentos.append(
+            {
+                "type": "text",
+                "text": {"content": f"  ·  📁 {origen}"},
+                "annotations": {"bold": True, "color": "blue"},
+            }
+        )
     return {
         "object": "block",
         "type": "paragraph",
-        "paragraph": {
-            "rich_text": [
-                {
-                    "type": "text",
-                    "text": {"content": f"🕐 {texto}"},
-                    "annotations": {"bold": True, "color": "red"},
-                }
-            ]
-        },
+        "paragraph": {"rich_text": fragmentos},
     }
 
 
@@ -382,7 +492,7 @@ def _prepend_blocks(client: Client, page_id: str, nuevos: list[dict[str, Any]]) 
         os.path.dirname(os.path.dirname(os.path.abspath(__file__))), ".notion_backups"
     )
     os.makedirs(backup_dir, exist_ok=True)
-    backup_path = os.path.join(backup_dir, f"memoria_{datetime.now():%Y%m%d_%H%M%S}.json")
+    backup_path = os.path.join(backup_dir, f"memoria_{_ahora():%Y%m%d_%H%M%S}.json")
     with open(backup_path, "w", encoding="utf-8") as f:
         json.dump(movibles, f, ensure_ascii=False, indent=2)
 
@@ -424,6 +534,34 @@ def write_notion_memory(
         nuevos.extend(_bloque_parrafo(r) for r in reportes if r.strip())
     if not nuevos:
         return 0
+    return _prepend_blocks(client, page_id, nuevos)
+
+
+def write_notion_anotacion(
+    client: Client,
+    page_id: str,
+    texto: str,
+    origen: Optional[str] = None,
+    dt: Optional[datetime] = None,
+) -> int:
+    """Añade una ANOTACIÓN al inicio de la página 'Anotaciones'.
+
+    Cada entrada lleva su cabecera con día de la semana, fecha, hora y
+    minuto exactos, más el proyecto desde el que se anotó — así después se
+    puede reconstruir en qué se estaba trabajando en ese momento.
+
+    OJO: esta página es solo de ESCRITURA para el orquestador. Su contenido
+    no se lee en `node_notion` ni entra en el prompt de `node_resumen`,
+    porque aquí se guardan credenciales y recursos privados que no deben
+    salir hacia la API del LLM.
+    """
+    texto = (texto or "").strip()
+    if not texto:
+        return 0
+    nuevos = [
+        _bloque_fecha(dt, origen or _contexto_proyecto()),
+        _bloque_parrafo(texto),
+    ]
     return _prepend_blocks(client, page_id, nuevos)
 
 
@@ -500,11 +638,18 @@ def node_resumen(state: dict) -> dict:
         api_key=settings.deepseek_api_key,
         base_url=settings.deepseek_base_url,
     )
+    # La fecha va explícita en el prompt: sin ella el modelo la deduce del
+    # contexto de la memoria (fechas de días anteriores) y la escribe mal.
+    ahora = _ahora()
     mensajes = [
         {
             "role": "system",
             "content": (
                 "Eres el asistente de inicio de jornada de un desarrollador. "
+                f"HOY es {ahora:%d/%m/%Y} y son las {ahora:%H:%M} "
+                f"(zona horaria {settings.timezone}). Si mencionas la fecha, "
+                "usa EXACTAMENTE esa; nunca la deduzcas del contexto, que "
+                "contiene entradas de días anteriores. "
                 "Genera un briefing breve, claro y en español con el estado de "
                 "los repos y el contexto de la memoria diaria. Destaca qué hay "
                 "pendiente y posibles siguientes pasos. Máximo 12 líneas."

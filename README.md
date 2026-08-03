@@ -25,7 +25,9 @@ todo orquestado con LangGraph + Golang.
   JSON limpio en vez de texto crudo: menos tokens, menos, ruido, latencia. Si no está compilado, cae fallback en Python.
 - **MCP nativo** — memoria de Notion u obsidian queda expuesta
   Agentes pueden Gestionar Base de datos CRUDS , sin copiar y pegar
-  contexto entre apps.
+  contexto entre apps. Dos canales separados: **Memoria** (jornada:
+  reportes y pendientes) y **Anotaciones** (recursos del día a día, cada
+  entrada sellada con día, hora exacta y proyecto de origen).
 - **Cualquier LLM, tu propia key** — compatible con la API de OpenAI entre otros 
   (DeepSeek por defecto, si orquestara 10 + Api keys distintos Provedores, Modelos, Provedores, entornos Docker, Multiples cuentas Notion, Gmail entre otros mas).
 .
@@ -68,6 +70,11 @@ integración) se explica sola.
 
 `.env` y `.mcp.json` están en `.gitignore` — nunca se suben a git. Tus
 tokens y tu página de Notion son tuyos y nunca salen
+
+La página **Anotaciones** (donde van credenciales y recursos privados) es
+de **escritura ciega** para el orquestador: no se lee en la rutina de la
+mañana ni entra en el prompt del LLM. Solo se consulta bajo petición
+explícita, por CLI o por MCP.
 
 ---
 
