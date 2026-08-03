@@ -72,7 +72,12 @@ ya tuvieras escrito; las páginas no se tocan):
 ./.venv/bin/python main.py crear-bases      # imprime los IDs para el .env
 ./.venv/bin/python main.py migrar --dry-run # revisar antes de escribir
 ./.venv/bin/python main.py migrar
+./.venv/bin/python main.py fijar-base       # deja la tabla arriba de la página
 ```
+
+Cada entrada queda como fila con `Contenido` (título), `Descripción` (el
+texto completo, visible sin abrir la fila), `Fecha`, `Tipo`, `Origen` y
+`Hecho`.
 
 La única clave con la que vale la pena empezar es `LLM_API_KEY` (o
 `DEEPSEEK_API_KEY`). Todo lo demás — Notion, GitHub, Docker, MCP, tu

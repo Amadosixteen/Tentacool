@@ -42,7 +42,24 @@ _ESQUEMA: dict[str, Any] = {
     # Equivalente de los checkbox de la página: un pendiente sigue siendo
     # algo que se marca como hecho, ahora filtrable y ordenable.
     "Hecho": {"checkbox": {}},
+    # El texto completo, como COLUMNA. El cuerpo de la fila también lo
+    # lleva, pero eso obliga a abrir cada fila para ver algo: en la tabla
+    # solo se veían títulos y la base parecía vacía de información.
+    "Descripción": {"rich_text": {}},
 }
+
+
+def asegurar_propiedades(client: Client, data_source_id: str) -> list[str]:
+    """Añade a una base ya creada las propiedades del esquema que le falten.
+
+    Evita tener que recrear la base (y perder las filas) cada vez que el
+    esquema gana un campo. Devuelve las que ha añadido.
+    """
+    actual = client.data_sources.retrieve(data_source_id=data_source_id)
+    faltan = {k: v for k, v in _ESQUEMA.items() if k not in (actual.get("properties") or {})}
+    if faltan:
+        client.data_sources.update(data_source_id=data_source_id, properties=faltan)
+    return list(faltan)
 
 
 def crear_base(client: Client, page_id: str, titulo: str) -> tuple[str, str]:
@@ -125,7 +142,7 @@ def crear_fila(
     """
     # Import diferido: nodes importa este módulo para escribir, así que
     # hacerlo arriba crearía un ciclo entre los dos.
-    from .nodes import _bloque_parrafo
+    from .nodes import _bloque_parrafo, _rich_text
 
     texto = (texto or "").strip()
     if not texto:
@@ -135,6 +152,9 @@ def crear_fila(
         "Contenido": {"title": [{"type": "text", "text": {"content": _titulo(texto)}}]},
         "Tipo": {"select": {"name": tipo}},
         "Hecho": {"checkbox": hecho},
+        # `_rich_text` ya trocea a 2000 caracteres, que es el límite por
+        # fragmento que impone la API.
+        "Descripción": {"rich_text": _rich_text(texto)},
     }
     if fecha is not None:
         propiedades["Fecha"] = {"date": {"start": fecha.isoformat()}}

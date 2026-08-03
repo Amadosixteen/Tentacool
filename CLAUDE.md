@@ -31,9 +31,20 @@ pregunte por un periodo ("lo del mes pasado", "qué hice la semana del 10"),
 **usa el rango** en vez de leerlo todo y filtrar tú: el filtro lo aplica
 Notion y evita traerse meses de historial.
 
-Cada fila lleva además `Tipo` (Anotación · Reporte · Pendiente · Briefing),
-`Origen` (proyecto y rama desde donde se escribió) y `Hecho` (checkbox de
-los pendientes).
+Columnas de cada fila:
+
+| Columna | Qué lleva |
+|---|---|
+| `Contenido` | título: primera línea con sentido, sin markdown |
+| `Descripción` | el texto completo, visible en la tabla sin abrir la fila |
+| `Fecha` | día y hora exactos (lo que hace posible el filtro) |
+| `Tipo` | Anotación · Reporte · Pendiente · Briefing |
+| `Origen` | proyecto y rama desde donde se escribió |
+| `Hecho` | checkbox de los pendientes |
+
+**Todo lo nuevo va a la base, no a los bloques de la hoja.** El texto suelto
+que hay en las páginas es el archivo anterior a la migración: no lo
+actualices ni escribas ahí a mano desde las tools.
 
 ## Regla fija: orden y formato de lo nuevo
 

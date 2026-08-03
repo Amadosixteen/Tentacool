@@ -648,6 +648,68 @@ def _recrear_bloque(b: dict[str, Any]) -> dict[str, Any]:
     return {"object": "block", "type": btype, btype: limpio}
 
 
+def _listar_bloques(client: Client, page_id: str) -> list[dict[str, Any]]:
+    """Todos los bloques hijos de la página, con paginación resuelta."""
+    bloques: list[dict[str, Any]] = []
+    cursor: Optional[str] = None
+    while True:
+        data = client.blocks.children.list(
+            block_id=page_id, start_cursor=cursor, page_size=100
+        )
+        bloques.extend(data.get("results", []))
+        if not data.get("has_more"):
+            break
+        cursor = data.get("next_cursor")
+    return bloques
+
+
+def _respaldar(bloques: list[dict[str, Any]]) -> str:
+    """Guarda en local los bloques antes de borrarlos.
+
+    Reordenar en Notion obliga a borrar y recrear; si el re-append falla a
+    mitad, esto es lo único que queda del contenido original.
+    """
+    backup_dir = os.path.join(
+        os.path.dirname(os.path.dirname(os.path.abspath(__file__))), ".notion_backups"
+    )
+    os.makedirs(backup_dir, exist_ok=True)
+    ruta = os.path.join(backup_dir, f"memoria_{_ahora():%Y%m%d_%H%M%S}.json")
+    with open(ruta, "w", encoding="utf-8") as f:
+        json.dump(bloques, f, ensure_ascii=False, indent=2)
+    return ruta
+
+
+def fijar_base_arriba(client: Client, page_id: str) -> int:
+    """Deja la base de datos de la página arriba del todo.
+
+    La base NO se puede mover: borrarla la mandaría a la papelera y no hay
+    forma de recrearla con sus filas. Lo que se mueve es todo lo demás —
+    se bajan los párrafos y checklists por debajo — con lo que la base
+    queda arriba sin haberla tocado.
+
+    Devuelve cuántos bloques se reubicaron (0 si ya estaba arriba).
+    """
+    existentes = _listar_bloques(client, page_id)
+    posicion_base = next(
+        (i for i, b in enumerate(existentes) if b.get("type") == "child_database"),
+        None,
+    )
+    if posicion_base is None:
+        return 0
+    # Solo hay trabajo si queda algo movible por encima de la base.
+    if not any(_es_reordenable(b) for b in existentes[:posicion_base]):
+        return 0
+
+    movibles = [b for b in existentes if _es_reordenable(b)]
+    _respaldar(movibles)
+    recreados = [_recrear_bloque(b) for b in movibles]
+    for b in movibles:
+        client.blocks.delete(block_id=b["id"])
+    for i in range(0, len(recreados), 100):
+        client.blocks.children.append(block_id=page_id, children=recreados[i : i + 100])
+    return len(recreados)
+
+
 def _prepend_blocks(client: Client, page_id: str, nuevos: list[dict[str, Any]]) -> int:
     """Inserta `nuevos` bloques AL INICIO de los bloques reordenables de la
     página (lo más nuevo arriba). Bloques especiales (subpáginas, bases de
@@ -655,32 +717,14 @@ def _prepend_blocks(client: Client, page_id: str, nuevos: list[dict[str, Any]]) 
     de Notion no permite "insertar antes del primero" sin borrar y recrear,
     y esos tipos no se pueden recrear igual, así que no se tocan.
     """
-    existentes: list[dict[str, Any]] = []
-    cursor: Optional[str] = None
-    while True:
-        data = client.blocks.children.list(
-            block_id=page_id, start_cursor=cursor, page_size=100
-        )
-        existentes.extend(data.get("results", []))
-        if not data.get("has_more"):
-            break
-        cursor = data.get("next_cursor")
+    existentes = _listar_bloques(client, page_id)
 
     movibles = [b for b in existentes if _es_reordenable(b)]
     if not movibles:
         client.blocks.children.append(block_id=page_id, children=nuevos)
         return len(nuevos)
 
-    # Respaldo local antes de borrar nada — por si el re-append falla a
-    # mitad de camino, el contenido original no se pierde.
-    backup_dir = os.path.join(
-        os.path.dirname(os.path.dirname(os.path.abspath(__file__))), ".notion_backups"
-    )
-    os.makedirs(backup_dir, exist_ok=True)
-    backup_path = os.path.join(backup_dir, f"memoria_{_ahora():%Y%m%d_%H%M%S}.json")
-    with open(backup_path, "w", encoding="utf-8") as f:
-        json.dump(movibles, f, ensure_ascii=False, indent=2)
-
+    _respaldar(movibles)
     recreados = [_recrear_bloque(b) for b in movibles]
 
     for b in movibles:

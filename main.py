@@ -97,6 +97,9 @@ def main() -> int:
     if comando == "migrar":
         return _migrar_cli("--dry-run" in sys.argv[2:])
 
+    if comando == "fijar-base":
+        return _fijar_base_cli()
+
     print(
         "Comando desconocido. Usa:\n"
         "  inicio      rutina de la mañana\n"
@@ -112,6 +115,7 @@ def main() -> int:
         "  crear-bases      crear una base en cada página y mostrar sus IDs\n"
         "  migrar           pasar los bloques existentes a filas\n"
         "                   (usa --dry-run para revisar antes)\n"
+        "  fijar-base       subir la base al principio de cada página\n"
         "\n"
         "Filtro por fechas (AAAA-MM-DD, DD/MM/AAAA, 'hoy' o 'ayer'):\n"
         "  python main.py leer --desde 2026-07-01 --hasta 2026-07-31\n"
@@ -180,7 +184,7 @@ def _anotacion_cli(args: list) -> int:
             texto,
             origen=origen,
         )
-        print(f"✅ Anotación guardada (+{n} bloques) · {_sello_tiempo()} · 📁 {origen}")
+        print(f"✅ Anotación guardada ({n}) · {_sello_tiempo()} · 📁 {origen}")
         return 0
     except Exception as e:  # noqa: BLE001
         print(f"❌ Error: {type(e).__name__}: {e}")
@@ -275,6 +279,34 @@ def _crear_bases_cli() -> int:
     return 0
 
 
+def _fijar_base_cli() -> int:
+    """Sube la base de datos al principio de cada página.
+
+    La base no se mueve (borrarla la mandaría a la papelera con sus filas):
+    lo que se baja es el resto del contenido, y así queda arriba.
+    """
+    if not settings.notion_token:
+        print("❌ Falta NOTION_TOKEN en .env.")
+        return 1
+    from src.nodes import fijar_base_arriba
+
+    client = Client(auth=settings.notion_token)
+    for nombre, page_id, _, _, _ in _paginas():
+        if not page_id:
+            continue
+        try:
+            n = fijar_base_arriba(client, page_id)
+            print(
+                f"✅ {nombre}: base arriba ({n} bloques reubicados)."
+                if n
+                else f"✔  {nombre}: la base ya estaba arriba."
+            )
+        except Exception as e:  # noqa: BLE001
+            print(f"❌ {nombre}: {type(e).__name__}: {e}")
+            return 1
+    return 0
+
+
 def _migrar_cli(dry_run: bool) -> int:
     """Lleva a las bases lo que ya está escrito como bloques en las páginas.
 
@@ -285,6 +317,7 @@ def _migrar_cli(dry_run: bool) -> int:
         print("❌ Falta NOTION_TOKEN en .env.")
         return 1
     from src.migracion import migrar_pagina
+    from src.notion_db import asegurar_propiedades
 
     client = Client(auth=settings.notion_token)
     if dry_run:
@@ -293,6 +326,12 @@ def _migrar_cli(dry_run: bool) -> int:
         if not page_id or not ds_id:
             print(f"⏭  {nombre}: falta page_id o data source, se omite.")
             continue
+        if not dry_run:
+            # Una base creada con una versión anterior puede no tener todas
+            # las columnas; añadirlas aquí evita recrearla (y perder filas).
+            nuevas = asegurar_propiedades(client, ds_id)
+            if nuevas:
+                print(f"   columnas añadidas a {nombre}: {', '.join(nuevas)}")
         r = migrar_pagina(client, page_id, ds_id, defecto, dry_run=dry_run)
         print(f"=== {nombre}: {r['total']} entradas ({r['sin_fecha']} sin fecha) ===")
         for fecha, tipo, muestra in r["detalle"]:

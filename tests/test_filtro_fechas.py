@@ -19,7 +19,7 @@ from src.nodes import (
     parsear_entradas,
     parsear_fecha,
 )
-from src.notion_db import _titulo, consultar
+from src.notion_db import _titulo, asegurar_propiedades, consultar, crear_fila
 
 
 # ── parseo de cabeceras ─────────────────────────────────────────────
@@ -198,3 +198,52 @@ def test_el_titulo_no_lleva_markdown():
 def test_el_titulo_conserva_los_guiones_bajos_de_los_nombres():
     # `saas_clinic` no puede quedar como `saasclinic`
     assert _titulo("- **saas_clinic:** actualizar .env") == "saas_clinic: actualizar .env"
+
+
+# ── la columna Descripción ──────────────────────────────────────────
+def test_la_fila_lleva_el_texto_completo_como_columna():
+    # sin esto, la tabla solo muestra títulos y la base parece vacía:
+    # habría que abrir fila por fila para ver algo
+    client = MagicMock()
+    client.pages.create.return_value = {"id": "fila-1"}
+    crear_fila(client, "ds-1", "Credenciales ERP\nusuario: root\nclave: x")
+    props = client.pages.create.call_args.kwargs["properties"]
+    completo = "".join(f["text"]["content"] for f in props["Descripción"]["rich_text"])
+    assert completo == "Credenciales ERP\nusuario: root\nclave: x"
+
+
+def test_el_titulo_resume_pero_la_descripcion_no_recorta():
+    client = MagicMock()
+    client.pages.create.return_value = {"id": "fila-1"}
+    crear_fila(client, "ds-1", "primera linea\nsegunda linea")
+    props = client.pages.create.call_args.kwargs["properties"]
+    assert props["Contenido"]["title"][0]["text"]["content"] == "primera linea"
+    completo = "".join(f["text"]["content"] for f in props["Descripción"]["rich_text"])
+    assert "segunda linea" in completo
+
+
+def test_sin_fecha_no_se_manda_la_propiedad_en_vez_de_inventarla():
+    client = MagicMock()
+    client.pages.create.return_value = {"id": "fila-1"}
+    crear_fila(client, "ds-1", "contenido antiguo", fecha=None)
+    assert "Fecha" not in client.pages.create.call_args.kwargs["properties"]
+
+
+# ── evolución del esquema ───────────────────────────────────────────
+def test_solo_se_anaden_las_propiedades_que_falten():
+    client = MagicMock()
+    client.data_sources.retrieve.return_value = {
+        "properties": {"Contenido": {}, "Fecha": {}}
+    }
+    nuevas = asegurar_propiedades(client, "ds-1")
+    assert "Descripción" in nuevas and "Contenido" not in nuevas
+    assert "Fecha" not in client.data_sources.update.call_args.kwargs["properties"]
+
+
+def test_no_se_llama_a_update_si_la_base_ya_esta_completa():
+    from src.notion_db import _ESQUEMA
+
+    client = MagicMock()
+    client.data_sources.retrieve.return_value = {"properties": dict(_ESQUEMA)}
+    assert asegurar_propiedades(client, "ds-1") == []
+    client.data_sources.update.assert_not_called()
