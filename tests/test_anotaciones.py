@@ -38,8 +38,8 @@ def test_dia_de_la_semana_en_espanol_sin_depender_del_locale():
 
 # ── cabecera del bloque ─────────────────────────────────────────────
 def test_cabecera_incluye_el_origen_cuando_se_pasa():
-    bloque = _bloque_fecha(FECHA, "neobusiness (main)")
-    assert _texto(bloque) == "🕐 lunes 03/08/2026 09:51  ·  📁 neobusiness (main)"
+    bloque = _bloque_fecha(FECHA, "mi-proyecto (main)")
+    assert _texto(bloque) == "🕐 lunes 03/08/2026 09:51  ·  📁 mi-proyecto (main)"
 
 
 def test_cabecera_sin_origen_solo_lleva_la_fecha():
@@ -53,15 +53,15 @@ def test_fecha_y_origen_van_en_fragmentos_distintos_para_colorearlos():
 
 # ── contexto del proyecto ───────────────────────────────────────────
 def test_contexto_usa_la_raiz_del_repo_y_la_rama():
-    with patch("src.nodes._git", side_effect=["/home/x/Projects/neobusiness", "main"]):
-        assert _contexto_proyecto("/home/x/Projects/neobusiness/app") == (
-            "neobusiness (main)"
+    with patch("src.nodes._git", side_effect=["/home/usuario/Projects/mi-proyecto", "main"]):
+        assert _contexto_proyecto("/home/usuario/Projects/mi-proyecto/app") == (
+            "mi-proyecto (main)"
         )
 
 
 def test_contexto_sin_git_cae_al_nombre_de_la_carpeta():
     with patch("src.nodes._git", return_value=""):
-        assert _contexto_proyecto("/home/x/sin_repo") == "sin_repo"
+        assert _contexto_proyecto("/home/usuario/sin_repo") == "sin_repo"
 
 
 # ── escritura en modo bloques (sin base de datos) ───────────────────
@@ -75,13 +75,13 @@ def test_anotacion_escribe_cabecera_y_texto_al_inicio():
             client,
             "page-1",
             "clave del ERP",
-            origen="neobusiness (main)",
+            origen="mi-proyecto (main)",
             dt=FECHA,
             data_source_id="",
         )
     assert n == 2
     _, _, nuevos = prepend.call_args[0]
-    assert _texto(nuevos[0]).endswith("📁 neobusiness (main)")
+    assert _texto(nuevos[0]).endswith("📁 mi-proyecto (main)")
     assert _texto(nuevos[1]) == "clave del ERP"
 
 
@@ -109,7 +109,7 @@ def test_anotacion_con_base_crea_fila_con_fecha_y_origen():
         "src.nodes._prepend_blocks"
     ) as prepend:
         n = write_notion_anotacion(
-            client, "page-1", "clave del ERP", origen="neobusiness (main)",
+            client, "page-1", "clave del ERP", origen="mi-proyecto (main)",
             dt=FECHA, data_source_id="ds-1",
         )
     assert n == 1
@@ -117,4 +117,4 @@ def test_anotacion_con_base_crea_fila_con_fecha_y_origen():
     kwargs = crear.call_args.kwargs
     assert kwargs["tipo"] == "Anotación"
     assert kwargs["fecha"] == FECHA
-    assert kwargs["origen"] == "neobusiness (main)"
+    assert kwargs["origen"] == "mi-proyecto (main)"

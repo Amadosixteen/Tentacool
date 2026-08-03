@@ -186,8 +186,8 @@ def test_rango_invertido_se_corrige_en_vez_de_no_devolver_nada():
 
 # ── título de las filas ─────────────────────────────────────────────
 def test_el_titulo_salta_los_encabezados_de_seccion():
-    assert _titulo("## Pendientes\nsaas_clinic: revisar el cron") == (
-        "saas_clinic: revisar el cron"
+    assert _titulo("## Pendientes\nmi_app_web: revisar el cron") == (
+        "mi_app_web: revisar el cron"
     )
 
 
@@ -196,8 +196,8 @@ def test_el_titulo_no_lleva_markdown():
 
 
 def test_el_titulo_conserva_los_guiones_bajos_de_los_nombres():
-    # `saas_clinic` no puede quedar como `saasclinic`
-    assert _titulo("- **saas_clinic:** actualizar .env") == "saas_clinic: actualizar .env"
+    # `mi_app_web` no puede quedar como `miappweb`
+    assert _titulo("- **mi_app_web:** actualizar .env") == "mi_app_web: actualizar .env"
 
 
 # ── la columna Descripción ──────────────────────────────────────────

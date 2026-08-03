@@ -95,7 +95,7 @@ def data_source_de(client: Client, database_id: str) -> str:
 # ni markdown crudo ni encabezados de sección genéricos como "## Pendientes",
 # que dejarían la tabla llena de filas indistinguibles.
 # `__` es negrita markdown, pero un `_` suelto casi siempre forma parte de un
-# nombre (`saas_clinic`): quitarlo destrozaría los identificadores.
+# nombre (`mi_app_web`): quitarlo destrozaría los identificadores.
 _MD_CRUDO = re.compile(r"[*`#]+|__")
 _ENCABEZADOS = {
     "pendientes", "pendiente", "reporte ia", "reporte", "reportes",
