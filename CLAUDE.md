@@ -46,6 +46,20 @@ Columnas de cada fila:
 que hay en las páginas es el archivo anterior a la migración: no lo
 actualices ni escribas ahí a mano desde las tools.
 
+## Un pendiente marcado como hecho está cerrado
+
+Las entradas llegan etiquetadas `[HECHO ✅]` o `[PENDIENTE ⬜]`. Si algo
+está en `[HECHO ✅]`, **el usuario ya lo resolvió**: no lo repitas como
+pendiente ni lo arrastres a los reportes del día siguiente.
+
+Tampoco cuentes cuántos días lleva algo abierto — ese dato no está en
+ningún sitio. Los briefings anteriores quedan fuera del contexto a
+propósito (`_TIPOS_FUERA_DEL_CONTEXTO`, `src/nodes.py`): cuando entraban, el
+LLM copiaba su prosa del día anterior y los pendientes ya cerrados
+reaparecían indefinidamente con una cuenta de días inventada que crecía
+sola. El estado real está en las filas `Pendiente` y su checkbox, no en el
+texto de un briefing viejo.
+
 ## Regla fija: orden y formato de lo nuevo
 
 **La fecha y la hora las pone el sistema, nunca la IA a mano.** Cada

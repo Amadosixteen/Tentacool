@@ -178,12 +178,18 @@ def consultar(
     hasta: Optional[datetime] = None,
     tipo: str = "",
     limite: int = 100,
+    tipos_excluidos: tuple[str, ...] = (),
 ) -> list[dict[str, Any]]:
     """Filas dentro del rango, de la más reciente a la más antigua.
 
     El filtro lo aplica Notion, no nosotros: no se descarga la base entera
     para tirar la mayoría, que es justo lo que dejaría de escalar cuando
     haya meses de historial.
+
+    `tipos_excluidos` deja fuera tipos concretos. Se usa para que el
+    briefing no se lea a sí mismo: si los briefings anteriores entran en su
+    propio contexto, el LLM copia su prosa de ayer y los pendientes se
+    arrastran para siempre aunque ya estén marcados como hechos.
     """
     condiciones: list[dict[str, Any]] = []
     if desde:
@@ -192,6 +198,8 @@ def consultar(
         condiciones.append({"property": "Fecha", "date": {"on_or_before": hasta.isoformat()}})
     if tipo:
         condiciones.append({"property": "Tipo", "select": {"equals": tipo}})
+    for excluido in tipos_excluidos:
+        condiciones.append({"property": "Tipo", "select": {"does_not_equal": excluido}})
 
     consulta: dict[str, Any] = {
         "data_source_id": data_source_id,
@@ -264,8 +272,12 @@ def formatear(
             cabecera += f"  ·  {tipo}"
         if origen:
             cabecera += f"  ·  📁 {origen}"
-        if ((fila.get("properties") or {}).get("Hecho") or {}).get("checkbox"):
-            cabecera += "  ·  ✅"
+        # El estado va en palabras, no solo con un emoji: un "✅" suelto se
+        # le pasa por alto al LLM y acaba reportando como pendiente algo que
+        # el usuario ya marcó como hecho.
+        if tipo == "Pendiente":
+            hecho = ((fila.get("properties") or {}).get("Hecho") or {}).get("checkbox")
+            cabecera += "  ·  [HECHO ✅]" if hecho else "  ·  [PENDIENTE ⬜]"
 
         cuerpo = ""
         if client is not None:

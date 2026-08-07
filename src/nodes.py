@@ -417,6 +417,7 @@ def leer_notion(
     desde: str = "",
     hasta: str = "",
     limite: int = 50,
+    tipos_excluidos: tuple[str, ...] = (),
 ) -> str:
     """Lee una página o su base de datos, opcionalmente acotada por fechas.
 
@@ -432,7 +433,14 @@ def leer_notion(
         h = parsear_fecha(hasta, fin_de_dia=True)
         if d and h and d > h:
             d, h = h, d
-        filas = consultar(client, data_source_id, desde=d, hasta=h, limite=limite)
+        filas = consultar(
+            client,
+            data_source_id,
+            desde=d,
+            hasta=h,
+            limite=limite,
+            tipos_excluidos=tipos_excluidos,
+        )
         return formatear(filas, client)
     return leer_notion_filtrado(client, page_id, desde, hasta)
 
@@ -842,6 +850,14 @@ def write_notion_anotacion(
 # últimos días: mandarla entera sería gastar tokens en historia antigua.
 _ENTRADAS_CONTEXTO = 15
 
+# Los briefings anteriores NO entran en el contexto del briefing de hoy.
+# Si entran, el LLM copia su propia prosa del día anterior y los pendientes
+# se arrastran indefinidamente —"arrastrados 4 días", "arrastrados 5
+# días"— aunque el usuario ya los haya marcado como hechos: lo que relee no
+# es la fila Pendiente con su checkbox, sino el texto de su briefing viejo.
+# El estado real vive en las filas Reporte y Pendiente, que sí se leen.
+_TIPOS_FUERA_DEL_CONTEXTO = ("Briefing",)
+
 
 def node_notion(state: dict) -> dict:
     """Lee el contexto reciente de 'Memoria' y, si hay pendientes/reportes
@@ -856,6 +872,7 @@ def node_notion(state: dict) -> dict:
             settings.notion_page_id,
             settings.notion_memoria_ds_id,
             limite=_ENTRADAS_CONTEXTO,
+            tipos_excluidos=_TIPOS_FUERA_DEL_CONTEXTO,
         )
     except Exception as e:  # noqa: BLE001
         return {
@@ -935,7 +952,14 @@ def node_resumen(state: dict) -> dict:
                 "contiene entradas de días anteriores. "
                 "Genera un briefing breve, claro y en español con el estado de "
                 "los repos y el contexto de la memoria diaria. Destaca qué hay "
-                "pendiente y posibles siguientes pasos. Máximo 12 líneas."
+                "pendiente y posibles siguientes pasos. Máximo 12 líneas.\n"
+                "REGLAS SOBRE LOS PENDIENTES:\n"
+                "· Las entradas marcadas [HECHO ✅] YA ESTÁN RESUELTAS. No las "
+                "menciones como pendientes ni las arrastres: si acaso, dalas "
+                "por cerradas.\n"
+                "· Solo son pendientes las marcadas [PENDIENTE ⬜].\n"
+                "· No cuentes cuántos días lleva algo pendiente: no tienes ese "
+                "dato fiable y en el pasado se inventó una cuenta que crecía sola."
             ),
         },
         {"role": "user", "content": contexto or "Sin contexto disponible."},
